@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use data_types::{
     ChunkId, ChunkOrder, PartitionKey, TableId, TimestampMinMax, TransitionPartitionId,
 };
+use datafusion::catalog::Session;
 use datafusion::common::DataFusionError;
-use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::Expr;
 use datafusion_util::stream_from_batches;
 use hashbrown::HashMap;
@@ -67,7 +67,7 @@ impl QueryableBuffer {
         table_name: &str,
         filters: &[Expr],
         _projection: Option<&Vec<usize>>,
-        _ctx: &SessionState,
+        _ctx: &dyn Session,
     ) -> Result<Vec<Arc<dyn QueryChunk>>, DataFusionError> {
         let table = db_schema
             .tables
