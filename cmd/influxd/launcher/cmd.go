@@ -142,7 +142,7 @@ type InfluxdOpts struct {
 	LogLevel          zapcore.Level
 	FluxLogEnabled    bool
 	TracingType       string
-	ReportingDisabled bool
+	ReportingDisabled bool // 收集
 
 	AssetsPath string
 	BoltPath   string
@@ -167,12 +167,12 @@ type InfluxdOpts struct {
 	SessionLength         int // in minutes
 	SessionRenewDisabled  bool
 
-	ProfilingDisabled bool
-	MetricsDisabled   bool
+	ProfilingDisabled bool // 收集
+	MetricsDisabled   bool // 收集
 	UIDisabled        bool
 
-	NatsPort            int
-	NatsMaxPayloadBytes int
+	NatsPort            int // deprecated
+	NatsMaxPayloadBytes int // deprecated
 
 	NoTasks      bool
 	FeatureFlags map[string]string

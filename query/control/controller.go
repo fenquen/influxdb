@@ -59,7 +59,7 @@ type Controller struct {
 	done       chan struct{}
 	abortOnce  sync.Once
 	abort      chan struct{}
-	memory     *memoryManager
+	memManager *memoryManager
 
 	metrics   *controllerMetrics
 	labelKeys []string
@@ -172,7 +172,7 @@ func (c *Config) validate() error {
 	}
 	if c.MaxMemoryBytes != 0 {
 		if minMemory := int64(c.ConcurrencyQuota) * c.InitialMemoryBytesQuotaPerQuery; c.MaxMemoryBytes < minMemory {
-			return fmt.Errorf("MaxMemoryBytes must be greater than or equal to the ConcurrencyQuota * InitialMemoryBytesQuotaPerQuery: %d < %d (%d * %d)", c.MaxMemoryBytes, minMemory, c.ConcurrencyQuota, c.InitialMemoryBytesQuotaPerQuery)
+			return fmt.Errorf("MaxMemoryBytes must be greater than or equal to the ConcurrencyQuota * InitialMemoryBytesQuotaPerQuery")
 		}
 	}
 	return nil
@@ -189,21 +189,21 @@ func New(config Config, logger *zap.Logger) (*Controller, error) {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	logger.Info("Starting query controller",
-		zap.Int32("concurrency_quota", c.ConcurrencyQuota),
-		zap.Int64("initial_memory_bytes_quota_per_query", c.InitialMemoryBytesQuotaPerQuery),
-		zap.Int64("memory_bytes_quota_per_query", c.MemoryBytesQuotaPerQuery),
-		zap.Int64("max_memory_bytes", c.MaxMemoryBytes),
-		zap.Int32("queue_size", c.QueueSize))
+	//logger.Info("Starting query controller",
+	//	zap.Int32("concurrency_quota", c.ConcurrencyQuota),
+	//	zap.Int64("initial_memory_bytes_quota_per_query", c.InitialMemoryBytesQuotaPerQuery),
+	//	zap.Int64("memory_bytes_quota_per_query", c.MemoryBytesQuotaPerQuery),
+	//	zap.Int64("max_memory_bytes", c.MaxMemoryBytes),
+	//	zap.Int32("queue_size", c.QueueSize))
 
-	mm := &memoryManager{
+	memManager := &memoryManager{
 		initialBytesQuotaPerQuery: c.InitialMemoryBytesQuotaPerQuery,
 		memoryBytesQuotaPerQuery:  c.MemoryBytesQuotaPerQuery,
 	}
 	if c.MaxMemoryBytes > 0 {
-		mm.unusedMemoryBytes = c.MaxMemoryBytes - (int64(c.ConcurrencyQuota) * c.InitialMemoryBytesQuotaPerQuery)
+		memManager.unusedMemoryBytes = c.MaxMemoryBytes - (int64(c.ConcurrencyQuota) * c.InitialMemoryBytesQuotaPerQuery)
 	} else {
-		mm.unlimited = true
+		memManager.unlimited = true
 	}
 	queryQueue := make(chan *Query, c.QueueSize)
 	if c.ConcurrencyQuota == 0 {
@@ -215,7 +215,7 @@ func New(config Config, logger *zap.Logger) (*Controller, error) {
 		queryQueue:     queryQueue,
 		done:           make(chan struct{}),
 		abort:          make(chan struct{}),
-		memory:         mm,
+		memManager:     memManager,
 		log:            logger,
 		metrics:        newControllerMetrics(metricLabelKeys),
 		labelKeys:      metricLabelKeys,
@@ -405,7 +405,7 @@ func (c *Controller) enqueueQuery(q *Query) error {
 		}
 	}
 
-	if c.queryQueue == nil {
+	if c.queryQueue == nil { // ConcurrencyQuota 和 QueueSize 都是 0
 		// unlimited queries case
 		c.queriesMu.RLock()
 		defer c.queriesMu.RUnlock()
@@ -592,7 +592,7 @@ func (c *Controller) PrometheusCollectors() []prometheus.Collector {
 }
 
 func (c *Controller) GetUnusedMemoryBytes() int64 {
-	return c.memory.getUnusedMemoryBytes()
+	return c.memManager.getUnusedMemoryBytes()
 }
 
 func (c *Controller) GetUsedMemoryBytes() int64 {

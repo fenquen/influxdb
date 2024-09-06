@@ -12,11 +12,11 @@ type memoryManager struct {
 	// initialBytesQuotaPerQuery is the initial amount of memory
 	// allocated for each query. It does not count against the
 	// memory pool.
-	initialBytesQuotaPerQuery int64
+	initialBytesQuotaPerQuery int64 // 不变
 
 	// memoryBytesQuotaPerQuery is the maximum amount of memory
 	// that may be allocated to each query.
-	memoryBytesQuotaPerQuery int64
+	memoryBytesQuotaPerQuery int64 // 不变
 
 	// unusedMemoryBytes is the amount of memory that may be used
 	// when a query requests more memory. This value is only used
@@ -44,8 +44,8 @@ func (m *memoryManager) addUnusedMemoryBytes(amount int64) int64 {
 // for the given query.
 func (c *Controller) createAllocator(q *Query) {
 	q.memoryManager = &queryMemoryManager{
-		m:     c.memory,
-		limit: c.memory.initialBytesQuotaPerQuery,
+		memManager: c.memManager,
+		limit:      c.memManager.initialBytesQuotaPerQuery,
 	}
 	q.alloc = &memory.ResourceAllocator{
 		// Use an anonymous function to ensure the value is copied.
@@ -56,9 +56,9 @@ func (c *Controller) createAllocator(q *Query) {
 
 // queryMemoryManager is a memory manager for a specific query.
 type queryMemoryManager struct {
-	m     *memoryManager
-	limit int64
-	given int64
+	memManager *memoryManager
+	limit      int64
+	given      int64
 }
 
 // RequestMemory will determine if the query can be given more memory
@@ -73,14 +73,14 @@ type queryMemoryManager struct {
 func (q *queryMemoryManager) RequestMemory(want int64) (got int64, err error) {
 	// It can be determined statically if we are going to violate
 	// the memoryBytesQuotaPerQuery.
-	if q.limit+want > q.m.memoryBytesQuotaPerQuery {
+	if q.limit+want > q.memManager.memoryBytesQuotaPerQuery {
 		return 0, errors.New("query hit hard limit")
 	}
 
 	for {
 		unused := int64(math.MaxInt64)
-		if !q.m.unlimited {
-			unused = q.m.getUnusedMemoryBytes()
+		if !q.memManager.unlimited {
+			unused = q.memManager.getUnusedMemoryBytes()
 			if unused < want {
 				// We do not have the capacity for this query to
 				// be given more memory.
@@ -95,8 +95,8 @@ func (q *queryMemoryManager) RequestMemory(want int64) (got int64, err error) {
 		given := q.giveMemory(want, unused)
 
 		// Reserve this memory for our own use.
-		if !q.m.unlimited {
-			if !q.m.trySetUnusedMemoryBytes(unused, unused-given) {
+		if !q.memManager.unlimited {
+			if !q.memManager.trySetUnusedMemoryBytes(unused, unused-given) {
 				// The unused value has changed so someone may have taken
 				// the memory that we wanted. Retry.
 				continue
@@ -118,12 +118,12 @@ func (q *queryMemoryManager) RequestMemory(want int64) (got int64, err error) {
 func (q *queryMemoryManager) giveMemory(want, unused int64) int64 {
 	// If we can safely double the limit, then just do that.
 	if q.limit > want && q.limit < unused {
-		if q.limit*2 <= q.m.memoryBytesQuotaPerQuery {
+		if q.limit*2 <= q.memManager.memoryBytesQuotaPerQuery {
 			return q.limit
 		}
 		// Doubling the limit sends us over the quota.
 		// Determine what would be our maximum amount.
-		max := q.m.memoryBytesQuotaPerQuery - q.limit
+		max := q.memManager.memoryBytesQuotaPerQuery - q.limit
 		if max > want {
 			return max
 		}
@@ -149,9 +149,9 @@ func (q *queryMemoryManager) FreeMemory(bytes int64) {
 // Release will release all of the allocated memory to the
 // memory manager.
 func (q *queryMemoryManager) Release() {
-	if !q.m.unlimited {
-		q.m.addUnusedMemoryBytes(q.given)
+	if !q.memManager.unlimited {
+		q.memManager.addUnusedMemoryBytes(q.given)
 	}
-	q.limit = q.m.initialBytesQuotaPerQuery
+	q.limit = q.memManager.initialBytesQuotaPerQuery
 	q.given = 0
 }
