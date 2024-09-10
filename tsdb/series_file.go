@@ -32,7 +32,7 @@ const (
 	SeriesFilePartitionN = 8
 )
 
-// SeriesFile represents the section of the index that holds series data.
+// represent the section of the index that holds series data.
 type SeriesFile struct {
 	path       string
 	partitions []*SeriesPartition
@@ -58,7 +58,7 @@ func NewSeriesFile(path string) *SeriesFile {
 	}
 }
 
-func (f *SeriesFile) WithMaxCompactionConcurrency(maxCompactionConcurrency int) {
+func (seriesFile *SeriesFile) WithMaxCompactionConcurrency(maxCompactionConcurrency int) {
 	if maxCompactionConcurrency < 1 {
 		maxCompactionConcurrency = runtime.GOMAXPROCS(0)
 		if maxCompactionConcurrency < 1 {
@@ -66,44 +66,44 @@ func (f *SeriesFile) WithMaxCompactionConcurrency(maxCompactionConcurrency int) 
 		}
 	}
 
-	f.maxSnapshotConcurrency = maxCompactionConcurrency
+	seriesFile.maxSnapshotConcurrency = maxCompactionConcurrency
 }
 
 // Open memory maps the data file at the file's path.
-func (f *SeriesFile) Open() error {
+func (seriesFile *SeriesFile) Open() error {
 	// Wait for all references to be released and prevent new ones from being acquired.
-	f.refs.Lock()
-	defer f.refs.Unlock()
+	seriesFile.refs.Lock()
+	defer seriesFile.refs.Unlock()
 
 	// Create path if it doesn't exist.
-	if err := os.MkdirAll(filepath.Join(f.path), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Join(seriesFile.path), 0777); err != nil {
 		return err
 	}
 
 	// Limit concurrent series file compactions
-	compactionLimiter := limiter.NewFixed(f.maxSnapshotConcurrency)
+	compactionLimiter := limiter.NewFixed(seriesFile.maxSnapshotConcurrency)
 
 	// Open partitions.
-	f.partitions = make([]*SeriesPartition, 0, SeriesFilePartitionN)
+	seriesFile.partitions = make([]*SeriesPartition, 0, SeriesFilePartitionN)
 	for i := 0; i < SeriesFilePartitionN; i++ {
-		p := NewSeriesPartition(i, f.SeriesPartitionPath(i), compactionLimiter)
-		p.Logger = f.Logger.With(zap.Int("partition", p.ID()))
-		if err := p.Open(); err != nil {
-			f.Logger.Error("Unable to open series file",
-				zap.String("path", f.path),
-				zap.Int("partition", p.ID()),
+		seriesPartition := NewSeriesPartition(i, seriesFile.SeriesPartitionPath(i), compactionLimiter)
+		seriesPartition.Logger = seriesFile.Logger.With(zap.Int("partition", seriesPartition.ID()))
+		if err := seriesPartition.Open(); err != nil {
+			seriesFile.Logger.Error("Unable to open series file",
+				zap.String("path", seriesFile.path),
+				zap.Int("partition", seriesPartition.ID()),
 				zap.Error(err))
-			f.close()
+			seriesFile.close()
 			return err
 		}
-		f.partitions = append(f.partitions, p)
+		seriesFile.partitions = append(seriesFile.partitions, seriesPartition)
 	}
 
 	return nil
 }
 
-func (f *SeriesFile) close() (err error) {
-	for _, p := range f.partitions {
+func (seriesFile *SeriesFile) close() (err error) {
+	for _, p := range seriesFile.partitions {
 		if e := p.Close(); e != nil && err == nil {
 			err = e
 		}
@@ -113,57 +113,57 @@ func (f *SeriesFile) close() (err error) {
 }
 
 // Close unmaps the data file.
-func (f *SeriesFile) Close() (err error) {
-	f.refs.Lock()
-	defer f.refs.Unlock()
-	return f.close()
+func (seriesFile *SeriesFile) Close() (err error) {
+	seriesFile.refs.Lock()
+	defer seriesFile.refs.Unlock()
+	return seriesFile.close()
 }
 
 // Path returns the path to the file.
-func (f *SeriesFile) Path() string { return f.path }
+func (seriesFile *SeriesFile) Path() string { return seriesFile.path }
 
 // SeriesPartitionPath returns the path to a given partition.
-func (f *SeriesFile) SeriesPartitionPath(i int) string {
-	return filepath.Join(f.path, fmt.Sprintf("%02x", i))
+func (seriesFile *SeriesFile) SeriesPartitionPath(i int) string {
+	return filepath.Join(seriesFile.path, fmt.Sprintf("%02x", i))
 }
 
 // Partitions returns all partitions.
-func (f *SeriesFile) Partitions() []*SeriesPartition { return f.partitions }
+func (seriesFile *SeriesFile) Partitions() []*SeriesPartition { return seriesFile.partitions }
 
 // Retain adds a reference count to the file.  It returns a release func.
-func (f *SeriesFile) Retain() func() {
-	if f != nil {
-		f.refs.RLock()
+func (seriesFile *SeriesFile) Retain() func() {
+	if seriesFile != nil {
+		seriesFile.refs.RLock()
 
 		// Return the RUnlock func as the release func to be called when done.
-		return f.refs.RUnlock
+		return seriesFile.refs.RUnlock
 	}
 	return nop
 }
 
 // EnableCompactions allows compactions to run.
-func (f *SeriesFile) EnableCompactions() {
-	for _, p := range f.partitions {
+func (seriesFile *SeriesFile) EnableCompactions() {
+	for _, p := range seriesFile.partitions {
 		p.EnableCompactions()
 	}
 }
 
 // DisableCompactions prevents new compactions from running.
-func (f *SeriesFile) DisableCompactions() {
-	for _, p := range f.partitions {
+func (seriesFile *SeriesFile) DisableCompactions() {
+	for _, p := range seriesFile.partitions {
 		p.DisableCompactions()
 	}
 }
 
 // Wait waits for all Retains to be released.
-func (f *SeriesFile) Wait() {
-	f.refs.Lock()
-	defer f.refs.Unlock()
+func (seriesFile *SeriesFile) Wait() {
+	seriesFile.refs.Lock()
+	defer seriesFile.refs.Unlock()
 }
 
 // FileSize returns the size of all partitions, in bytes.
-func (f *SeriesFile) FileSize() (n int64, err error) {
-	for _, p := range f.partitions {
+func (seriesFile *SeriesFile) FileSize() (n int64, err error) {
+	for _, p := range seriesFile.partitions {
 		v, err := p.FileSize()
 		n += v
 		if err != nil {
@@ -173,18 +173,18 @@ func (f *SeriesFile) FileSize() (n int64, err error) {
 	return n, err
 }
 
-// CreateSeriesListIfNotExists creates a list of series in bulk if they don't exist.
+// create a list of series in bulk if they don't exist.
 // The returned ids slice returns IDs for every name+tags, creating new series IDs as needed.
-func (f *SeriesFile) CreateSeriesListIfNotExists(names [][]byte, tagsSlice []models.Tags) ([]uint64, error) {
+func (seriesFile *SeriesFile) CreateSeriesListIfNotExists(names [][]byte, tagsSlice []models.Tags) ([]uint64, error) {
 	keys := GenerateSeriesKeys(names, tagsSlice)
-	keyPartitionIDs := f.SeriesKeysPartitionIDs(keys)
+	keyPartitionIDs := seriesFile.SeriesKeysPartitionIDs(keys)
 	ids := make([]uint64, len(keys))
 
 	var g errgroup.Group
-	for i := range f.partitions {
-		p := f.partitions[i]
+	for i := range seriesFile.partitions {
+		seriesPartition := seriesFile.partitions[i]
 		g.Go(func() error {
-			return p.CreateSeriesListIfNotExists(keys, keyPartitionIDs, ids)
+			return seriesPartition.CreateSeriesListIfNotExists(keys, keyPartitionIDs, ids)
 		})
 	}
 	if err := g.Wait(); err != nil {
@@ -195,8 +195,8 @@ func (f *SeriesFile) CreateSeriesListIfNotExists(names [][]byte, tagsSlice []mod
 
 // DeleteSeriesID flags a series as permanently deleted.
 // If the series is reintroduced later then it must create a new id.
-func (f *SeriesFile) DeleteSeriesID(id uint64) error {
-	p := f.SeriesIDPartition(id)
+func (seriesFile *SeriesFile) DeleteSeriesID(id uint64) error {
+	p := seriesFile.SeriesIDPartition(id)
 	if p == nil {
 		return ErrInvalidSeriesPartitionID
 	}
@@ -204,8 +204,8 @@ func (f *SeriesFile) DeleteSeriesID(id uint64) error {
 }
 
 // IsDeleted returns true if the ID has been deleted before.
-func (f *SeriesFile) IsDeleted(id uint64) bool {
-	p := f.SeriesIDPartition(id)
+func (seriesFile *SeriesFile) IsDeleted(id uint64) bool {
+	p := seriesFile.SeriesIDPartition(id)
 	if p == nil {
 		return false
 	}
@@ -213,11 +213,11 @@ func (f *SeriesFile) IsDeleted(id uint64) bool {
 }
 
 // SeriesKey returns the series key for a given id.
-func (f *SeriesFile) SeriesKey(id uint64) []byte {
+func (seriesFile *SeriesFile) SeriesKey(id uint64) []byte {
 	if id == 0 {
 		return nil
 	}
-	p := f.SeriesIDPartition(id)
+	p := seriesFile.SeriesIDPartition(id)
 	if p == nil {
 		return nil
 	}
@@ -225,17 +225,17 @@ func (f *SeriesFile) SeriesKey(id uint64) []byte {
 }
 
 // SeriesKeys returns a list of series keys from a list of ids.
-func (f *SeriesFile) SeriesKeys(ids []uint64) [][]byte {
+func (seriesFile *SeriesFile) SeriesKeys(ids []uint64) [][]byte {
 	keys := make([][]byte, len(ids))
 	for i := range ids {
-		keys[i] = f.SeriesKey(ids[i])
+		keys[i] = seriesFile.SeriesKey(ids[i])
 	}
 	return keys
 }
 
 // Series returns the parsed series name and tags for an offset.
-func (f *SeriesFile) Series(id uint64) ([]byte, models.Tags) {
-	key := f.SeriesKey(id)
+func (seriesFile *SeriesFile) Series(id uint64) ([]byte, models.Tags) {
+	key := seriesFile.SeriesKey(id)
 	if key == nil {
 		return nil, nil
 	}
@@ -243,9 +243,9 @@ func (f *SeriesFile) Series(id uint64) ([]byte, models.Tags) {
 }
 
 // SeriesID return the series id for the series.
-func (f *SeriesFile) SeriesID(name []byte, tags models.Tags, buf []byte) uint64 {
+func (seriesFile *SeriesFile) SeriesID(name []byte, tags models.Tags, buf []byte) uint64 {
 	key := AppendSeriesKey(buf[:0], name, tags)
-	keyPartition := f.SeriesKeyPartition(key)
+	keyPartition := seriesFile.SeriesKeyPartition(key)
 	if keyPartition == nil {
 		return 0
 	}
@@ -253,59 +253,59 @@ func (f *SeriesFile) SeriesID(name []byte, tags models.Tags, buf []byte) uint64 
 }
 
 // HasSeries return true if the series exists.
-func (f *SeriesFile) HasSeries(name []byte, tags models.Tags, buf []byte) bool {
-	return f.SeriesID(name, tags, buf) > 0
+func (seriesFile *SeriesFile) HasSeries(name []byte, tags models.Tags, buf []byte) bool {
+	return seriesFile.SeriesID(name, tags, buf) > 0
 }
 
 // SeriesCount returns the number of series.
-func (f *SeriesFile) SeriesCount() uint64 {
+func (seriesFile *SeriesFile) SeriesCount() uint64 {
 	var n uint64
-	for _, p := range f.partitions {
+	for _, p := range seriesFile.partitions {
 		n += p.SeriesCount()
 	}
 	return n
 }
 
 // SeriesIDIterator returns an iterator over all the series.
-func (f *SeriesFile) SeriesIDIterator() SeriesIDIterator {
+func (seriesFile *SeriesFile) SeriesIDIterator() SeriesIDIterator {
 	var ids []uint64
-	for _, p := range f.partitions {
+	for _, p := range seriesFile.partitions {
 		ids = p.AppendSeriesIDs(ids)
 	}
 	sort.Sort(uint64Slice(ids))
 	return NewSeriesIDSliceIterator(ids)
 }
 
-func (f *SeriesFile) SeriesIDPartitionID(id uint64) int {
+func (seriesFile *SeriesFile) SeriesIDPartitionID(id uint64) int {
 	return int((id - 1) % SeriesFilePartitionN)
 }
 
-func (f *SeriesFile) SeriesIDPartition(id uint64) *SeriesPartition {
-	partitionID := f.SeriesIDPartitionID(id)
-	if partitionID >= len(f.partitions) {
+func (seriesFile *SeriesFile) SeriesIDPartition(id uint64) *SeriesPartition {
+	partitionID := seriesFile.SeriesIDPartitionID(id)
+	if partitionID >= len(seriesFile.partitions) {
 		return nil
 	}
-	return f.partitions[partitionID]
+	return seriesFile.partitions[partitionID]
 }
 
-func (f *SeriesFile) SeriesKeysPartitionIDs(keys [][]byte) []int {
+func (seriesFile *SeriesFile) SeriesKeysPartitionIDs(keys [][]byte) []int {
 	partitionIDs := make([]int, len(keys))
 	for i := range keys {
-		partitionIDs[i] = f.SeriesKeyPartitionID(keys[i])
+		partitionIDs[i] = seriesFile.SeriesKeyPartitionID(keys[i])
 	}
 	return partitionIDs
 }
 
-func (f *SeriesFile) SeriesKeyPartitionID(key []byte) int {
+func (seriesFile *SeriesFile) SeriesKeyPartitionID(key []byte) int {
 	return int(xxhash.Sum64(key) % SeriesFilePartitionN)
 }
 
-func (f *SeriesFile) SeriesKeyPartition(key []byte) *SeriesPartition {
-	partitionID := f.SeriesKeyPartitionID(key)
-	if partitionID >= len(f.partitions) {
+func (seriesFile *SeriesFile) SeriesKeyPartition(key []byte) *SeriesPartition {
+	partitionID := seriesFile.SeriesKeyPartitionID(key)
+	if partitionID >= len(seriesFile.partitions) {
 		return nil
 	}
-	return f.partitions[partitionID]
+	return seriesFile.partitions[partitionID]
 }
 
 // AppendSeriesKey serializes name and tags to a byte slice.

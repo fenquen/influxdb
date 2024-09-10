@@ -3199,16 +3199,6 @@ func NewIndex(id uint64, database, path string, seriesIDSet *SeriesIDSet, sfile 
 	return fn(id, database, path, seriesIDSet, sfile, options), nil
 }
 
-func MustOpenIndex(id uint64, database, path string, seriesIDSet *SeriesIDSet, sfile *SeriesFile, options EngineOptions) Index {
-	idx, err := NewIndex(id, database, path, seriesIDSet, sfile, options)
-	if err != nil {
-		panic(err)
-	} else if err := idx.Open(); err != nil {
-		panic(err)
-	}
-	return idx
-}
-
 // assert will panic with a given formatted message if the given condition is false.
 func assert(condition bool, msg string, v ...interface{}) {
 	if !condition {

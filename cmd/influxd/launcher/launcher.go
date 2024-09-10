@@ -114,7 +114,7 @@ type labeledCloser struct {
 	closer func(context.Context) error
 }
 
-// Launcher represents the main program execution.
+// represents the main program execution.
 type Launcher struct {
 	wg       sync.WaitGroup
 	cancel   func()
@@ -159,38 +159,38 @@ func NewLauncher() *Launcher {
 }
 
 // Registry returns the prometheus metrics registry.
-func (m *Launcher) Registry() *prom.Registry {
-	return m.reg
+func (launcher *Launcher) Registry() *prom.Registry {
+	return launcher.reg
 }
 
 // Engine returns a reference to the storage engine. It should only be called
 // for end-to-end testing purposes.
-func (m *Launcher) Engine() Engine {
-	return m.engine
+func (launcher *Launcher) Engine() Engine {
+	return launcher.engine
 }
 
 // Shutdown shuts down the HTTP server and waits for all services to clean up.
-func (m *Launcher) Shutdown(ctx context.Context) error {
+func (launcher *Launcher) Shutdown(ctx context.Context) error {
 	var errs []string
 
 	// Shut down subsystems in the reverse order of their registration.
-	for i := len(m.closers); i > 0; i-- {
-		lc := m.closers[i-1]
-		m.log.Info("Stopping subsystem", zap.String("subsystem", lc.label))
+	for i := len(launcher.closers); i > 0; i-- {
+		lc := launcher.closers[i-1]
+		launcher.log.Info("Stopping subsystem", zap.String("subsystem", lc.label))
 		if err := lc.closer(ctx); err != nil {
-			m.log.Error("Failed to stop subsystem", zap.String("subsystem", lc.label), zap.Error(err))
+			launcher.log.Error("Failed to stop subsystem", zap.String("subsystem", lc.label), zap.Error(err))
 			errs = append(errs, err.Error())
 		}
 	}
 
-	m.wg.Wait()
+	launcher.wg.Wait()
 
 	// N.B. We ignore any errors here because Sync is known to fail with EINVAL
 	// when logging to Stdout on certain OS's.
 	//
 	// Uber made the same change within the core of the logger implementation.
 	// See: https://github.com/uber-go/zap/issues/328
-	_ = m.log.Sync()
+	_ = launcher.log.Sync()
 
 	if len(errs) > 0 {
 		return fmt.Errorf("failed to shut down server: [%s]", strings.Join(errs, ","))
@@ -198,104 +198,104 @@ func (m *Launcher) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (m *Launcher) Done() <-chan struct{} {
-	return m.doneChan
+func (launcher *Launcher) Done() <-chan struct{} {
+	return launcher.doneChan
 }
 
-func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
+func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 	span, ctx := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	ctx, m.cancel = context.WithCancel(ctx)
-	m.doneChan = ctx.Done()
+	ctx, launcher.cancel = context.WithCancel(ctx)
+	launcher.doneChan = ctx.Done()
 
 	info := platform.GetBuildInfo()
-	m.log.Info("Welcome to InfluxDB",
+	launcher.log.Info("Welcome to InfluxDB",
 		zap.String("version", info.Version),
 		zap.String("commit", info.Commit),
 		zap.String("build_date", info.Date),
 		zap.String("log_level", opts.LogLevel.String()),
 	)
-	m.initTracing(opts)
+	launcher.initTracing(opts)
 
 	if p := opts.Viper.ConfigFileUsed(); p != "" {
-		m.log.Debug("loaded config file", zap.String("path", p))
+		launcher.log.Debug("loaded config file", zap.String("path", p))
 	}
 
 	if opts.NatsPort != 0 {
-		m.log.Warn("nats-port argument is deprecated and unused")
+		launcher.log.Warn("nats-port argument is deprecated and unused")
 	}
 
 	if opts.NatsMaxPayloadBytes != 0 {
-		m.log.Warn("nats-max-payload-bytes argument is deprecated and unused")
+		launcher.log.Warn("nats-max-payload-bytes argument is deprecated and unused")
 	}
 
 	// Parse feature flags.
 	// These flags can be used to modify the remaining setup logic in this method.
 	// They will also be injected into the contexts of incoming HTTP requests at runtime,
 	// for use in modifying behavior there.
-	if m.flagger == nil {
-		m.flagger = feature.DefaultFlagger()
+	if launcher.flagger == nil {
+		launcher.flagger = feature.DefaultFlagger()
 		if len(opts.FeatureFlags) > 0 {
 			f, err := overrideflagger.Make(opts.FeatureFlags, feature.ByKey)
 			if err != nil {
-				m.log.Error("Failed to configure feature flag overrides",
+				launcher.log.Error("Failed to configure feature flag overrides",
 					zap.Error(err), zap.Any("overrides", opts.FeatureFlags))
 				return err
 			}
-			m.log.Info("Running with feature flag overrides", zap.Any("overrides", opts.FeatureFlags))
-			m.flagger = f
+			launcher.log.Info("Running with feature flag overrides", zap.Any("overrides", opts.FeatureFlags))
+			launcher.flagger = f
 		}
 	}
 
-	m.reg = prom.NewRegistry(m.log.With(zap.String("service", "prom_registry")))
-	m.reg.MustRegister(collectors.NewGoCollector())
+	launcher.reg = prom.NewRegistry(launcher.log.With(zap.String("service", "prom_registry")))
+	launcher.reg.MustRegister(collectors.NewGoCollector())
 
 	// Open KV and SQL stores.
-	procID, err := m.openMetaStores(ctx, opts)
+	procID, err := launcher.openMetaStores(ctx, opts)
 	if err != nil {
 		return err
 	}
-	m.reg.MustRegister(infprom.NewInfluxCollector(procID, info))
+	launcher.reg.MustRegister(infprom.NewInfluxCollector(procID, info))
 
-	tenantStore := tenant.NewStore(m.kvStore)
-	ts := tenant.NewSystem(tenantStore, m.log.With(zap.String("store", "new")), m.reg, metric.WithSuffix("new"))
+	tenantStore := tenant.NewStore(launcher.kvStore)
+	ts := tenant.NewSystem(tenantStore, launcher.log.With(zap.String("store", "new")), launcher.reg, metric.WithSuffix("new"))
 
 	serviceConfig := kv.ServiceConfig{
 		FluxLanguageService: fluxlang.DefaultService,
 	}
 
-	m.kvService = kv.NewService(m.log.With(zap.String("store", "kv")), m.kvStore, ts, serviceConfig)
+	launcher.kvService = kv.NewService(launcher.log.With(zap.String("store", "kv")), launcher.kvStore, ts, serviceConfig)
 
 	var (
-		opLogSvc                                              = tenant.NewOpLogService(m.kvStore, m.kvService)
+		opLogSvc                                              = tenant.NewOpLogService(launcher.kvStore, launcher.kvService)
 		userLogSvc   platform.UserOperationLogService         = opLogSvc
 		bucketLogSvc platform.BucketOperationLogService       = opLogSvc
 		orgLogSvc    platform.OrganizationOperationLogService = opLogSvc
 	)
 	var (
-		variableSvc      platform.VariableService           = m.kvService
-		sourceSvc        platform.SourceService             = m.kvService
-		scraperTargetSvc platform.ScraperTargetStoreService = m.kvService
+		variableSvc      platform.VariableService           = launcher.kvService
+		sourceSvc        platform.SourceService             = launcher.kvService
+		scraperTargetSvc platform.ScraperTargetStoreService = launcher.kvService
 	)
 
 	var authSvc platform.AuthorizationService
 	{
-		authStore, err := authorization.NewStore(m.kvStore)
+		authStore, err := authorization.NewStore(launcher.kvStore)
 		if err != nil {
-			m.log.Error("Failed creating new authorization store", zap.Error(err))
+			launcher.log.Error("Failed creating new authorization store", zap.Error(err))
 			return err
 		}
 		authSvc = authorization.NewService(authStore, ts)
 	}
 
-	secretStore, err := secret.NewStore(m.kvStore)
+	secretStore, err := secret.NewStore(launcher.kvStore)
 	if err != nil {
-		m.log.Error("Failed creating new secret store", zap.Error(err))
+		launcher.log.Error("Failed creating new secret store", zap.Error(err))
 		return err
 	}
 
-	var secretSvc platform.SecretService = secret.NewMetricService(m.reg, secret.NewLogger(m.log.With(zap.String("service", "secret")), secret.NewService(secretStore)))
+	var secretSvc platform.SecretService = secret.NewMetricService(launcher.reg, secret.NewLogger(launcher.log.With(zap.String("service", "secret")), secret.NewService(secretStore)))
 
 	switch opts.SecretStore {
 	case "bolt":
@@ -305,19 +305,19 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		// https://www.vaultproject.io/docs/commands/index.html#environment-variables
 		svc, err := vault.NewSecretService(vault.WithConfig(opts.VaultConfig))
 		if err != nil {
-			m.log.Error("Failed initializing vault secret service", zap.Error(err))
+			launcher.log.Error("Failed initializing vault secret service", zap.Error(err))
 			return err
 		}
 		secretSvc = svc
 	default:
 		err := fmt.Errorf("unknown secret service %q, expected \"bolt\" or \"vault\"", opts.SecretStore)
-		m.log.Error("Failed setting secret service", zap.Error(err))
+		launcher.log.Error("Failed setting secret service", zap.Error(err))
 		return err
 	}
 
-	metaClient := meta.NewClient(meta.NewConfig(), m.kvStore)
+	metaClient := meta.NewClient(meta.NewConfig(), launcher.kvStore)
 	if err := metaClient.Open(); err != nil {
-		m.log.Error("Failed to open meta client", zap.Error(err))
+		launcher.log.Error("Failed to open meta client", zap.Error(err))
 		return err
 	}
 
@@ -327,60 +327,60 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 			opts.StorageConfig,
 			storage.WithMetaClient(metaClient),
 		)
-		m.flushers = append(m.flushers, engine)
-		m.engine = engine
+		launcher.flushers = append(launcher.flushers, engine)
+		launcher.engine = engine
 	} else {
 		// check for 2.x data / state from a prior 2.x
-		if err := checkForPriorVersion(ctx, m.log, opts.BoltPath, opts.EnginePath, ts.BucketService, metaClient); err != nil {
+		if err := checkForPriorVersion(ctx, launcher.log, opts.BoltPath, opts.EnginePath, ts.BucketService, metaClient); err != nil {
 			os.Exit(1)
 		}
 
-		m.engine = storage.NewEngine(
+		launcher.engine = storage.NewEngine(
 			opts.EnginePath,
 			opts.StorageConfig,
 			storage.WithMetricsDisabled(opts.MetricsDisabled),
 			storage.WithMetaClient(metaClient),
 		)
 	}
-	m.engine.WithLogger(m.log)
-	if err := m.engine.Open(ctx); err != nil {
-		m.log.Error("Failed to open engine", zap.Error(err))
+	launcher.engine.WithLogger(launcher.log)
+	if err := launcher.engine.Open(ctx); err != nil {
+		launcher.log.Error("Failed to open engine", zap.Error(err))
 		return err
 	}
-	m.closers = append(m.closers, labeledCloser{
+	launcher.closers = append(launcher.closers, labeledCloser{
 		label: "engine",
 		closer: func(context.Context) error {
-			return m.engine.Close()
+			return launcher.engine.Close()
 		},
 	})
 	// The Engine's metrics must be registered after it opens.
-	m.reg.MustRegister(m.engine.PrometheusCollectors()...)
+	launcher.reg.MustRegister(launcher.engine.PrometheusCollectors()...)
 
 	var (
-		deleteService  platform.DeleteService  = m.engine
-		pointsWriter   storage.PointsWriter    = m.engine
-		backupService  platform.BackupService  = m.engine
-		restoreService platform.RestoreService = m.engine
+		deleteService  platform.DeleteService  = launcher.engine
+		pointsWriter   storage.PointsWriter    = launcher.engine
+		backupService  platform.BackupService  = launcher.engine
+		restoreService platform.RestoreService = launcher.engine
 	)
 
-	remotesSvc := remotes.NewService(m.sqlStore)
+	remotesSvc := remotes.NewService(launcher.sqlStore)
 	remotesServer := remotesTransport.NewInstrumentedRemotesHandler(
-		m.log.With(zap.String("handler", "remotes")), m.reg, m.kvStore, remotesSvc)
+		launcher.log.With(zap.String("handler", "remotes")), launcher.reg, launcher.kvStore, remotesSvc)
 
-	replicationSvc, replicationsMetrics := replications.NewService(m.sqlStore, ts, pointsWriter, m.log.With(zap.String("service", "replications")), opts.EnginePath, opts.InstanceID)
+	replicationSvc, replicationsMetrics := replications.NewService(launcher.sqlStore, ts, pointsWriter, launcher.log.With(zap.String("service", "replications")), opts.EnginePath, opts.InstanceID)
 	replicationServer := replicationTransport.NewInstrumentedReplicationHandler(
-		m.log.With(zap.String("handler", "replications")), m.reg, m.kvStore, replicationSvc)
+		launcher.log.With(zap.String("handler", "replications")), launcher.reg, launcher.kvStore, replicationSvc)
 	ts.BucketService = replications.NewBucketService(
-		m.log.With(zap.String("service", "replication_buckets")), ts.BucketService, replicationSvc)
+		launcher.log.With(zap.String("service", "replication_buckets")), ts.BucketService, replicationSvc)
 
-	m.reg.MustRegister(replicationsMetrics.PrometheusCollectors()...)
+	launcher.reg.MustRegister(replicationsMetrics.PrometheusCollectors()...)
 
 	if err = replicationSvc.Open(ctx); err != nil {
-		m.log.Error("Failed to open replications service", zap.Error(err))
+		launcher.log.Error("Failed to open replications service", zap.Error(err))
 		return err
 	}
 
-	m.closers = append(m.closers, labeledCloser{
+	launcher.closers = append(launcher.closers, labeledCloser{
 		label: "replications",
 		closer: func(context.Context) error {
 			return replicationSvc.Close()
@@ -399,7 +399,7 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 	}
 
 	deps, err := influxdb.NewDependencies(
-		storageflux.NewReader(storage2.NewStore(m.engine.TSDBStore(), m.engine.MetaClient())),
+		storageflux.NewReader(storage2.NewStore(launcher.engine.TSDBStore(), launcher.engine.MetaClient())),
 		pointsWriter,
 		authorizer.NewBucketService(ts.BucketService),
 		authorizer.NewOrgService(ts.OrganizationService),
@@ -408,7 +408,7 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		influxdb.WithURLValidator(urlValidator),
 	)
 	if err != nil {
-		m.log.Error("Failed to get query controller dependencies", zap.Error(err))
+		launcher.log.Error("Failed to get query controller dependencies", zap.Error(err))
 		return err
 	}
 
@@ -418,7 +418,7 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		dependencyList = append(dependencyList, testing.FrameworkConfig{})
 	}
 
-	m.queryController, err = control.New(control.Config{
+	launcher.queryController, err = control.New(control.Config{
 		ConcurrencyQuota:                opts.ConcurrencyQuota,
 		InitialMemoryBytesQuotaPerQuery: opts.InitialMemoryBytesQuotaPerQuery,
 		MemoryBytesQuotaPerQuery:        opts.MemoryBytesQuotaPerQuery,
@@ -426,48 +426,48 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		QueueSize:                       opts.QueueSize,
 		ExecutorDependencies:            dependencyList,
 		FluxLogEnabled:                  opts.FluxLogEnabled,
-	}, m.log.With(zap.String("service", "storage-reads")))
+	}, launcher.log.With(zap.String("service", "storage-reads")))
 	if err != nil {
-		m.log.Error("Failed to create query controller", zap.Error(err))
+		launcher.log.Error("Failed to create query controller", zap.Error(err))
 		return err
 	}
-	m.closers = append(m.closers, labeledCloser{
+	launcher.closers = append(launcher.closers, labeledCloser{
 		label: "query",
 		closer: func(ctx context.Context) error {
-			return m.queryController.Shutdown(ctx)
+			return launcher.queryController.Shutdown(ctx)
 		},
 	})
 
-	m.reg.MustRegister(m.queryController.PrometheusCollectors()...)
+	launcher.reg.MustRegister(launcher.queryController.PrometheusCollectors()...)
 
-	var storageQueryService = readservice.NewProxyQueryService(m.queryController)
+	var storageQueryService = readservice.NewProxyQueryService(launcher.queryController)
 	var taskSvc taskmodel.TaskService
 	{
 		// create the task stack
 		combinedTaskService := taskbackend.NewAnalyticalStorage(
-			m.log.With(zap.String("service", "task-analytical-store")),
-			m.kvService,
+			launcher.log.With(zap.String("service", "task-analytical-store")),
+			launcher.kvService,
 			ts.BucketService,
-			m.kvService,
+			launcher.kvService,
 			pointsWriter,
-			query.QueryServiceBridge{AsyncQueryService: m.queryController},
+			query.QueryServiceBridge{AsyncQueryService: launcher.queryController},
 		)
 
 		executor, executorMetrics := executor.NewExecutor(
-			m.log.With(zap.String("service", "task-executor")),
-			query.QueryServiceBridge{AsyncQueryService: m.queryController},
+			launcher.log.With(zap.String("service", "task-executor")),
+			query.QueryServiceBridge{AsyncQueryService: launcher.queryController},
 			ts.UserService,
 			combinedTaskService,
 			combinedTaskService,
-			executor.WithFlagger(m.flagger),
+			executor.WithFlagger(launcher.flagger),
 		)
 		err = executor.LoadExistingScheduleRuns(ctx)
 		if err != nil {
-			m.log.Fatal("could not load existing scheduled runs", zap.Error(err))
+			launcher.log.Fatal("could not load existing scheduled runs", zap.Error(err))
 		}
-		m.executor = executor
-		m.reg.MustRegister(executorMetrics.PrometheusCollectors()...)
-		schLogger := m.log.With(zap.String("service", "task-scheduler"))
+		launcher.executor = executor
+		launcher.reg.MustRegister(executorMetrics.PrometheusCollectors()...)
+		schLogger := launcher.log.With(zap.String("service", "task-scheduler"))
 
 		var sch stoppingScheduler = &scheduler.NoopScheduler{}
 		if !opts.NoTasks {
@@ -477,7 +477,7 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 			)
 			sch, sm, err = scheduler.NewScheduler(
 				executor,
-				taskbackend.NewSchedulableTaskService(m.kvService),
+				taskbackend.NewSchedulableTaskService(launcher.kvService),
 				scheduler.WithOnErrorFn(func(ctx context.Context, taskID scheduler.ID, scheduledAt time.Time, err error) {
 					schLogger.Info(
 						"error in scheduler run",
@@ -487,21 +487,21 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 				}),
 			)
 			if err != nil {
-				m.log.Fatal("could not start task scheduler", zap.Error(err))
+				launcher.log.Fatal("could not start task scheduler", zap.Error(err))
 			}
-			m.closers = append(m.closers, labeledCloser{
+			launcher.closers = append(launcher.closers, labeledCloser{
 				label: "task",
 				closer: func(context.Context) error {
 					sch.Stop()
 					return nil
 				},
 			})
-			m.reg.MustRegister(sm.PrometheusCollectors()...)
+			launcher.reg.MustRegister(sm.PrometheusCollectors()...)
 		}
 
-		m.scheduler = sch
+		launcher.scheduler = sch
 
-		coordLogger := m.log.With(zap.String("service", "task-coordinator"))
+		coordLogger := launcher.log.With(zap.String("service", "task-coordinator"))
 		taskCoord := coordinator.NewCoordinator(
 			coordLogger,
 			sch,
@@ -518,30 +518,30 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 				return err
 			},
 			coordLogger); err != nil {
-			m.log.Error("Failed to resume existing tasks", zap.Error(err))
+			launcher.log.Error("Failed to resume existing tasks", zap.Error(err))
 		}
 	}
 
-	dbrpSvc := dbrp.NewAuthorizedService(dbrp.NewService(ctx, authorizer.NewBucketService(ts.BucketService), m.kvStore))
+	dbrpSvc := dbrp.NewAuthorizedService(dbrp.NewService(ctx, authorizer.NewBucketService(ts.BucketService), launcher.kvStore))
 
 	cm := iqlcontrol.NewControllerMetrics([]string{})
-	m.reg.MustRegister(cm.PrometheusCollectors()...)
+	launcher.reg.MustRegister(cm.PrometheusCollectors()...)
 
 	mapper := &iqlcoordinator.LocalShardMapper{
 		MetaClient: metaClient,
-		TSDBStore:  m.engine.TSDBStore(),
+		TSDBStore:  launcher.engine.TSDBStore(),
 		DBRP:       dbrpSvc,
 	}
 
-	m.log.Info("Configuring InfluxQL statement executor (zeros indicate unlimited).",
+	launcher.log.Info("Configuring InfluxQL statement executor (zeros indicate unlimited).",
 		zap.Int("max_select_point", opts.CoordinatorConfig.MaxSelectPointN),
 		zap.Int("max_select_series", opts.CoordinatorConfig.MaxSelectSeriesN),
 		zap.Int("max_select_buckets", opts.CoordinatorConfig.MaxSelectBucketsN))
 
-	qe := iqlquery.NewExecutor(m.log, cm)
+	qe := iqlquery.NewExecutor(launcher.log, cm)
 	se := &iqlcoordinator.StatementExecutor{
 		MetaClient:        metaClient,
-		TSDBStore:         m.engine.TSDBStore(),
+		TSDBStore:         launcher.engine.TSDBStore(),
 		ShardMapper:       mapper,
 		DBRP:              dbrpSvc,
 		MaxSelectPointN:   opts.CoordinatorConfig.MaxSelectPointN,
@@ -553,40 +553,40 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 
 	var checkSvc platform.CheckService
 	{
-		coordinator := coordinator.NewCoordinator(m.log, m.scheduler, m.executor)
-		checkSvc = checks.NewService(m.log.With(zap.String("svc", "checks")), m.kvStore, ts.OrganizationService, m.kvService)
-		checkSvc = middleware.NewCheckService(checkSvc, m.kvService, coordinator)
+		coordinator := coordinator.NewCoordinator(launcher.log, launcher.scheduler, launcher.executor)
+		checkSvc = checks.NewService(launcher.log.With(zap.String("svc", "checks")), launcher.kvStore, ts.OrganizationService, launcher.kvService)
+		checkSvc = middleware.NewCheckService(checkSvc, launcher.kvService, coordinator)
 	}
 
 	var notificationEndpointSvc platform.NotificationEndpointService
 	{
-		notificationEndpointSvc = endpointservice.New(endpointservice.NewStore(m.kvStore), secretSvc)
+		notificationEndpointSvc = endpointservice.New(endpointservice.NewStore(launcher.kvStore), secretSvc)
 	}
 
 	var notificationRuleSvc platform.NotificationRuleStore
 	{
-		coordinator := coordinator.NewCoordinator(m.log, m.scheduler, m.executor)
-		notificationRuleSvc, err = ruleservice.New(m.log, m.kvStore, m.kvService, ts.OrganizationService, notificationEndpointSvc)
+		coordinator := coordinator.NewCoordinator(launcher.log, launcher.scheduler, launcher.executor)
+		notificationRuleSvc, err = ruleservice.New(launcher.log, launcher.kvStore, launcher.kvService, ts.OrganizationService, notificationEndpointSvc)
 		if err != nil {
 			return err
 		}
 
 		// tasks service notification middleware which keeps task service up to date
 		// with persisted changes to notification rules.
-		notificationRuleSvc = middleware.NewNotificationRuleStore(notificationRuleSvc, m.kvService, coordinator)
+		notificationRuleSvc = middleware.NewNotificationRuleStore(notificationRuleSvc, launcher.kvService, coordinator)
 	}
 
 	var telegrafSvc platform.TelegrafConfigStore
 	{
-		telegrafSvc = telegrafservice.New(m.kvStore)
+		telegrafSvc = telegrafservice.New(launcher.kvStore)
 	}
 
-	scraperScheduler, err := gather.NewScheduler(m.log.With(zap.String("service", "scraper")), 100, 10, scraperTargetSvc, pointsWriter, 10*time.Second)
+	scraperScheduler, err := gather.NewScheduler(launcher.log.With(zap.String("service", "scraper")), 100, 10, scraperTargetSvc, pointsWriter, 10*time.Second)
 	if err != nil {
-		m.log.Error("Failed to create scraper subscriber", zap.Error(err))
+		launcher.log.Error("Failed to create scraper subscriber", zap.Error(err))
 		return err
 	}
-	m.closers = append(m.closers, labeledCloser{
+	launcher.closers = append(launcher.closers, labeledCloser{
 		label: "scraper",
 		closer: func(ctx context.Context) error {
 			scraperScheduler.Close()
@@ -603,44 +603,44 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 			authSvc,
 			session.WithSessionLength(time.Duration(opts.SessionLength)*time.Minute),
 		)
-		sessionSvc = session.NewSessionMetrics(m.reg, sessionSvc)
-		sessionSvc = session.NewSessionLogger(m.log.With(zap.String("service", "session")), sessionSvc)
+		sessionSvc = session.NewSessionMetrics(launcher.reg, sessionSvc)
+		sessionSvc = session.NewSessionLogger(launcher.log.With(zap.String("service", "session")), sessionSvc)
 	}
 
 	var labelSvc platform.LabelService
 	{
-		labelsStore, err := label.NewStore(m.kvStore)
+		labelsStore, err := label.NewStore(launcher.kvStore)
 		if err != nil {
-			m.log.Error("Failed creating new labels store", zap.Error(err))
+			launcher.log.Error("Failed creating new labels store", zap.Error(err))
 			return err
 		}
 		labelSvc = label.NewService(labelsStore)
 	}
 
-	ts.BucketService = storage.NewBucketService(m.log, ts.BucketService, m.engine)
-	ts.BucketService = dbrp.NewBucketService(m.log, ts.BucketService, dbrpSvc)
+	ts.BucketService = storage.NewBucketService(launcher.log, ts.BucketService, launcher.engine)
+	ts.BucketService = dbrp.NewBucketService(launcher.log, ts.BucketService, dbrpSvc)
 
 	bucketManifestWriter := backup.NewBucketManifestWriter(ts, metaClient)
 
-	onboardingLogger := m.log.With(zap.String("handler", "onboard"))
+	onboardingLogger := launcher.log.With(zap.String("handler", "onboard"))
 	onboardOpts := []tenant.OnboardServiceOptionFn{tenant.WithOnboardingLogger(onboardingLogger)}
 	if opts.TestingAlwaysAllowSetup {
 		onboardOpts = append(onboardOpts, tenant.WithAlwaysAllowInitialUser())
 	}
 
-	onboardSvc := tenant.NewOnboardService(ts, authSvc, onboardOpts...)                   // basic service
-	onboardSvc = tenant.NewAuthedOnboardSvc(onboardSvc)                                   // with auth
-	onboardSvc = tenant.NewOnboardingMetrics(m.reg, onboardSvc, metric.WithSuffix("new")) // with metrics
-	onboardSvc = tenant.NewOnboardingLogger(onboardingLogger, onboardSvc)                 // with logging
+	onboardSvc := tenant.NewOnboardService(ts, authSvc, onboardOpts...)                          // basic service
+	onboardSvc = tenant.NewAuthedOnboardSvc(onboardSvc)                                          // with auth
+	onboardSvc = tenant.NewOnboardingMetrics(launcher.reg, onboardSvc, metric.WithSuffix("new")) // with metrics
+	onboardSvc = tenant.NewOnboardingLogger(onboardingLogger, onboardSvc)                        // with logging
 
 	var (
 		passwordV1 platform.PasswordsService
 		authSvcV1  *authv1.Service
 	)
 	{
-		authStore, err := authv1.NewStore(m.kvStore)
+		authStore, err := authv1.NewStore(launcher.kvStore)
 		if err != nil {
-			m.log.Error("Failed creating new authorization store", zap.Error(err))
+			launcher.log.Error("Failed creating new authorization store", zap.Error(err))
 			return err
 		}
 
@@ -653,7 +653,7 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		dashboardLogSvc platform.DashboardOperationLogService
 	)
 	{
-		dashboardService := dashboards.NewService(m.kvStore, m.kvService)
+		dashboardService := dashboards.NewService(launcher.kvStore, launcher.kvService)
 		dashboardSvc = dashboardService
 		dashboardLogSvc = dashboardService
 	}
@@ -677,12 +677,12 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		NotificationRuleFinder:     notificationRuleSvc,
 	}
 
-	errorHandler := kithttp.NewErrorHandler(m.log.With(zap.String("handler", "error_logger")))
-	m.apibackend = &http.APIBackend{
+	errorHandler := kithttp.NewErrorHandler(launcher.log.With(zap.String("handler", "error_logger")))
+	launcher.apibackend = &http.APIBackend{
 		AssetsPath:           opts.AssetsPath,
 		UIDisabled:           opts.UIDisabled,
 		HTTPErrorHandler:     errorHandler,
-		Logger:               m.log,
+		Logger:               launcher.log,
 		FluxLogEnabled:       opts.FluxLogEnabled,
 		SessionRenewDisabled: opts.SessionRenewDisabled,
 		NewQueryService:      source.NewQueryService,
@@ -693,7 +693,7 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		},
 		DeleteService:           deleteService,
 		BackupService:           backupService,
-		SqlBackupRestoreService: m.sqlStore,
+		SqlBackupRestoreService: launcher.sqlStore,
 		BucketManifestWriter:    bucketManifestWriter,
 		RestoreService:          restoreService,
 		AuthorizationService:    authSvc,
@@ -723,7 +723,7 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		SourceService:                   sourceSvc,
 		VariableService:                 variableSvc,
 		PasswordsService:                ts.PasswordsService,
-		InfluxqldService:                iqlquery.NewProxyExecutor(m.log, qe),
+		InfluxqldService:                iqlquery.NewProxyExecutor(launcher.log, qe),
 		FluxService:                     storageQueryService,
 		FluxLanguageService:             fluxlang.DefaultService,
 		TaskService:                     taskSvc,
@@ -734,28 +734,28 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		ScraperTargetStoreService:       scraperTargetSvc,
 		SecretService:                   secretSvc,
 		LookupService:                   resourceResolver,
-		DocumentService:                 m.kvService,
+		DocumentService:                 launcher.kvService,
 		OrgLookupService:                resourceResolver,
 		WriteEventRecorder:              infprom.NewEventRecorder("write"),
 		QueryEventRecorder:              infprom.NewEventRecorder("query"),
-		Flagger:                         m.flagger,
+		Flagger:                         launcher.flagger,
 		FlagsHandler:                    feature.NewFlagsHandler(errorHandler, feature.ByKey),
 	}
 
-	m.reg.MustRegister(m.apibackend.PrometheusCollectors()...)
+	launcher.reg.MustRegister(launcher.apibackend.PrometheusCollectors()...)
 
 	authAgent := new(authorizer.AuthAgent)
 
 	var pkgSVC pkger.SVC
 	{
-		b := m.apibackend
+		b := launcher.apibackend
 		authedOrgSVC := authorizer.NewOrgService(b.OrganizationService)
 		authedUrmSVC := authorizer.NewURMService(b.OrgLookupService, b.UserResourceMappingService)
-		pkgerLogger := m.log.With(zap.String("service", "pkger"))
+		pkgerLogger := launcher.log.With(zap.String("service", "pkger"))
 		pkgSVC = pkger.NewService(
 			pkger.WithHTTPClient(pkger.NewDefaultHTTPClient(urlValidator)),
 			pkger.WithLogger(pkgerLogger),
-			pkger.WithStore(pkger.NewStoreKV(m.kvStore)),
+			pkger.WithStore(pkger.NewStoreKV(launcher.kvStore)),
 			pkger.WithBucketSVC(authorizer.NewBucketService(b.BucketService)),
 			pkger.WithCheckSVC(authorizer.NewCheckService(b.CheckService, authedUrmSVC, authedOrgSVC)),
 			pkger.WithDashboardSVC(authorizer.NewDashboardService(b.DashboardService)),
@@ -769,76 +769,76 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 			pkger.WithVariableSVC(authorizer.NewVariableService(b.VariableService)),
 		)
 		pkgSVC = pkger.MWTracing()(pkgSVC)
-		pkgSVC = pkger.MWMetrics(m.reg)(pkgSVC)
+		pkgSVC = pkger.MWMetrics(launcher.reg)(pkgSVC)
 		pkgSVC = pkger.MWLogging(pkgerLogger)(pkgSVC)
 		pkgSVC = pkger.MWAuth(authAgent)(pkgSVC)
 	}
 
 	var stacksHTTPServer *pkger.HTTPServerStacks
 	{
-		tLogger := m.log.With(zap.String("handler", "stacks"))
+		tLogger := launcher.log.With(zap.String("handler", "stacks"))
 		stacksHTTPServer = pkger.NewHTTPServerStacks(tLogger, pkgSVC)
 	}
 
 	var templatesHTTPServer *pkger.HTTPServerTemplates
 	{
-		tLogger := m.log.With(zap.String("handler", "templates"))
+		tLogger := launcher.log.With(zap.String("handler", "templates"))
 		templatesHTTPServer = pkger.NewHTTPServerTemplates(tLogger, pkgSVC, pkger.NewDefaultHTTPClient(urlValidator))
 	}
 
-	userHTTPServer := ts.NewUserHTTPHandler(m.log)
-	meHTTPServer := ts.NewMeHTTPHandler(m.log)
-	onboardHTTPServer := tenant.NewHTTPOnboardHandler(m.log, onboardSvc)
+	userHTTPServer := ts.NewUserHTTPHandler(launcher.log)
+	meHTTPServer := ts.NewMeHTTPHandler(launcher.log)
+	onboardHTTPServer := tenant.NewHTTPOnboardHandler(launcher.log, onboardSvc)
 
 	// feature flagging for new labels service
 	var labelHandler *label.LabelHandler
 	{
-		b := m.apibackend
+		b := launcher.apibackend
 
 		labelSvc = label.NewAuthedLabelService(labelSvc, b.OrgLookupService)
-		labelSvc = label.NewLabelLogger(m.log.With(zap.String("handler", "labels")), labelSvc)
-		labelSvc = label.NewLabelMetrics(m.reg, labelSvc)
-		labelHandler = label.NewHTTPLabelHandler(m.log, labelSvc)
+		labelSvc = label.NewLabelLogger(launcher.log.With(zap.String("handler", "labels")), labelSvc)
+		labelSvc = label.NewLabelMetrics(launcher.reg, labelSvc)
+		labelHandler = label.NewHTTPLabelHandler(launcher.log, labelSvc)
 	}
 
 	// feature flagging for new authorization service
 	var authHTTPServer *authorization.AuthHandler
 	{
-		authLogger := m.log.With(zap.String("handler", "authorization"))
+		authLogger := launcher.log.With(zap.String("handler", "authorization"))
 
 		var authService platform.AuthorizationService
 		authService = authorization.NewAuthedAuthorizationService(authSvc, ts)
-		authService = authorization.NewAuthMetrics(m.reg, authService)
+		authService = authorization.NewAuthMetrics(launcher.reg, authService)
 		authService = authorization.NewAuthLogger(authLogger, authService)
 
-		authHTTPServer = authorization.NewHTTPAuthHandler(m.log, authService, ts)
+		authHTTPServer = authorization.NewHTTPAuthHandler(launcher.log, authService, ts)
 	}
 
 	var v1AuthHTTPServer *authv1.AuthHandler
 	{
-		authLogger := m.log.With(zap.String("handler", "v1_authorization"))
+		authLogger := launcher.log.With(zap.String("handler", "v1_authorization"))
 
 		var authService platform.AuthorizationService
 		authService = authorization.NewAuthedAuthorizationService(authSvcV1, ts)
 		authService = authorization.NewAuthLogger(authLogger, authService)
 
 		passService := authv1.NewAuthedPasswordService(authv1.AuthFinder(authSvcV1), passwordV1)
-		v1AuthHTTPServer = authv1.NewHTTPAuthHandler(m.log, authService, passService, ts)
+		v1AuthHTTPServer = authv1.NewHTTPAuthHandler(launcher.log, authService, passService, ts)
 	}
 
 	var sessionHTTPServer *session.SessionHandler
 	{
-		sessionHTTPServer = session.NewSessionHandler(m.log.With(zap.String("handler", "session")), sessionSvc, ts.UserService, ts.PasswordsService)
+		sessionHTTPServer = session.NewSessionHandler(launcher.log.With(zap.String("handler", "session")), sessionSvc, ts.UserService, ts.PasswordsService)
 	}
 
-	orgHTTPServer := ts.NewOrgHTTPHandler(m.log, secret.NewAuthedService(secretSvc))
+	orgHTTPServer := ts.NewOrgHTTPHandler(launcher.log, secret.NewAuthedService(secretSvc))
 
-	bucketHTTPServer := ts.NewBucketHTTPHandler(m.log, labelSvc)
+	bucketHTTPServer := ts.NewBucketHTTPHandler(launcher.log, labelSvc)
 
 	var dashboardServer *dashboardTransport.DashboardHandler
 	{
 		urmHandler := tenant.NewURMHandler(
-			m.log.With(zap.String("handler", "urm")),
+			launcher.log.With(zap.String("handler", "urm")),
 			platform.DashboardsResourceType,
 			"id",
 			ts.UserService,
@@ -846,13 +846,13 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		)
 
 		labelHandler := label.NewHTTPEmbeddedHandler(
-			m.log.With(zap.String("handler", "label")),
+			launcher.log.With(zap.String("handler", "label")),
 			platform.DashboardsResourceType,
 			labelSvc,
 		)
 
 		dashboardServer = dashboardTransport.NewDashboardHandler(
-			m.log.With(zap.String("handler", "dashboards")),
+			launcher.log.With(zap.String("handler", "dashboards")),
 			authorizer.NewDashboardService(dashboardSvc),
 			labelSvc,
 			ts.UserService,
@@ -862,35 +862,35 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		)
 	}
 
-	notebookSvc := notebooks.NewService(m.sqlStore)
+	notebookSvc := notebooks.NewService(launcher.sqlStore)
 	notebookServer := notebookTransport.NewNotebookHandler(
-		m.log.With(zap.String("handler", "notebooks")),
+		launcher.log.With(zap.String("handler", "notebooks")),
 		authorizer.NewNotebookService(
 			notebooks.NewLoggingService(
-				m.log.With(zap.String("service", "notebooks")),
-				notebooks.NewMetricCollectingService(m.reg, notebookSvc),
+				launcher.log.With(zap.String("service", "notebooks")),
+				notebooks.NewMetricCollectingService(launcher.reg, notebookSvc),
 			),
 		),
 	)
 
-	annotationSvc := annotations.NewService(m.sqlStore)
+	annotationSvc := annotations.NewService(launcher.sqlStore)
 	annotationServer := annotationTransport.NewAnnotationHandler(
-		m.log.With(zap.String("handler", "annotations")),
+		launcher.log.With(zap.String("handler", "annotations")),
 		authorizer.NewAnnotationService(
 			annotations.NewLoggingService(
-				m.log.With(zap.String("service", "annotations")),
-				annotations.NewMetricCollectingService(m.reg, annotationSvc),
+				launcher.log.With(zap.String("service", "annotations")),
+				annotations.NewMetricCollectingService(launcher.reg, annotationSvc),
 			),
 		),
 	)
 
-	configHandler, err := http.NewConfigHandler(m.log.With(zap.String("handler", "config")), opts.BindCliOpts())
+	configHandler, err := http.NewConfigHandler(launcher.log.With(zap.String("handler", "config")), opts.BindCliOpts())
 	if err != nil {
 		return err
 	}
 
 	platformHandler := http.NewPlatformHandler(
-		m.apibackend,
+		launcher.apibackend,
 		http.WithResourceHandler(stacksHTTPServer),
 		http.WithResourceHandler(templatesHTTPServer),
 		http.WithResourceHandler(onboardHTTPServer),
@@ -911,13 +911,13 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 		http.WithResourceHandler(configHandler),
 	)
 
-	httpLogger := m.log.With(zap.String("service", "http"))
+	httpLogger := launcher.log.With(zap.String("service", "http"))
 	var httpHandler nethttp.Handler = http.NewRootHandler(
 		"platform",
 		http.WithLog(httpLogger),
 		http.WithAPIHandler(platformHandler),
 		http.WithPprofEnabled(!opts.ProfilingDisabled),
-		http.WithMetrics(m.reg, !opts.MetricsDisabled),
+		http.WithMetrics(launcher.reg, !opts.MetricsDisabled),
 	)
 
 	if opts.LogLevel == zap.DebugLevel {
@@ -925,13 +925,13 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 	}
 	// If we are in testing mode we allow all data to be flushed and removed.
 	if opts.Testing {
-		httpHandler = http.Debug(ctx, httpHandler, m.flushers, onboardSvc)
+		httpHandler = http.Debug(ctx, httpHandler, launcher.flushers, onboardSvc)
 	}
 
 	if !opts.ReportingDisabled {
-		m.runReporter(ctx)
+		launcher.runReporter(ctx)
 	}
-	if err := m.runHTTP(opts, httpHandler, httpLogger); err != nil {
+	if err := launcher.runHTTP(opts, httpHandler, httpLogger); err != nil {
 		return err
 	}
 
@@ -940,25 +940,25 @@ func (m *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
 
 // initTracing sets up the global tracer for the influxd process.
 // Any errors encountered during setup are logged, but don't crash the process.
-func (m *Launcher) initTracing(opts *InfluxdOpts) {
+func (launcher *Launcher) initTracing(opts *InfluxdOpts) {
 	switch opts.TracingType {
 	case LogTracing:
-		m.log.Info("Tracing via zap logging")
-		opentracing.SetGlobalTracer(pzap.NewTracer(m.log, snowflake.NewIDGenerator()))
+		launcher.log.Info("Tracing via zap logging")
+		opentracing.SetGlobalTracer(pzap.NewTracer(launcher.log, snowflake.NewIDGenerator()))
 
 	case JaegerTracing:
-		m.log.Info("Tracing via Jaeger")
+		launcher.log.Info("Tracing via Jaeger")
 		cfg, err := jaegerconfig.FromEnv()
 		if err != nil {
-			m.log.Error("Failed to get Jaeger client config from environment variables", zap.Error(err))
+			launcher.log.Error("Failed to get Jaeger client config from environment variables", zap.Error(err))
 			return
 		}
 		tracer, closer, err := cfg.NewTracer()
 		if err != nil {
-			m.log.Error("Failed to instantiate Jaeger tracer", zap.Error(err))
+			launcher.log.Error("Failed to instantiate Jaeger tracer", zap.Error(err))
 			return
 		}
-		m.closers = append(m.closers, labeledCloser{
+		launcher.closers = append(launcher.closers, labeledCloser{
 			label: "Jaeger tracer",
 			closer: func(context.Context) error {
 				return closer.Close()
@@ -971,7 +971,7 @@ func (m *Launcher) initTracing(opts *InfluxdOpts) {
 // openMetaStores opens the embedded DBs used to store metadata about influxd resources, migrating them to
 // the latest schema expected by the server.
 // On success, a unique ID is returned to be used as an identifier for the influxd instance in telemetry.
-func (m *Launcher) openMetaStores(ctx context.Context, opts *InfluxdOpts) (string, error) {
+func (launcher *Launcher) openMetaStores(ctx context.Context, opts *InfluxdOpts) (string, error) {
 	type flushableKVStore interface {
 		kv.SchemaStore
 		http.Flusher
@@ -983,26 +983,26 @@ func (m *Launcher) openMetaStores(ctx context.Context, opts *InfluxdOpts) (strin
 	var err error
 	switch opts.StoreType {
 	case BoltStore:
-		m.log.Warn("Using --store=bolt is deprecated. Use --store=disk instead.")
+		launcher.log.Warn("Using --store=bolt is deprecated. Use --store=disk instead.")
 		fallthrough
 	case DiskStore:
-		boltClient := bolt.NewClient(m.log.With(zap.String("service", "bolt")))
+		boltClient := bolt.NewClient(launcher.log.With(zap.String("service", "bolt")))
 		boltClient.Path = opts.BoltPath
 
 		if err := boltClient.Open(ctx); err != nil {
-			m.log.Error("Failed opening bolt", zap.Error(err))
+			launcher.log.Error("Failed opening bolt", zap.Error(err))
 			return "", err
 		}
-		m.closers = append(m.closers, labeledCloser{
+		launcher.closers = append(launcher.closers, labeledCloser{
 			label: "bolt",
 			closer: func(context.Context) error {
 				return boltClient.Close()
 			},
 		})
-		m.reg.MustRegister(boltClient)
+		launcher.reg.MustRegister(boltClient)
 		procID = boltClient.ID().String()
 
-		boltKV := bolt.NewKVStore(m.log.With(zap.String("service", "kvstore-bolt")), opts.BoltPath)
+		boltKV := bolt.NewKVStore(launcher.log.With(zap.String("service", "kvstore-bolt")), opts.BoltPath)
 		boltKV.WithDB(boltClient.DB())
 		kvStore = boltKV
 
@@ -1010,47 +1010,47 @@ func (m *Launcher) openMetaStores(ctx context.Context, opts *InfluxdOpts) (strin
 		if opts.SqLitePath == "" {
 			opts.SqLitePath = filepath.Join(filepath.Dir(opts.BoltPath), sqlite.DefaultFilename)
 		}
-		sqlStore, err = sqlite.NewSqlStore(opts.SqLitePath, m.log.With(zap.String("service", "sqlite")))
+		sqlStore, err = sqlite.NewSqlStore(opts.SqLitePath, launcher.log.With(zap.String("service", "sqlite")))
 		if err != nil {
-			m.log.Error("Failed opening sqlite store", zap.Error(err))
+			launcher.log.Error("Failed opening sqlite store", zap.Error(err))
 			return "", err
 		}
 
 	case MemoryStore:
 		kvStore = inmem.NewKVStore()
-		sqlStore, err = sqlite.NewSqlStore(sqlite.InmemPath, m.log.With(zap.String("service", "sqlite")))
+		sqlStore, err = sqlite.NewSqlStore(sqlite.InmemPath, launcher.log.With(zap.String("service", "sqlite")))
 		if err != nil {
-			m.log.Error("Failed opening sqlite store", zap.Error(err))
+			launcher.log.Error("Failed opening sqlite store", zap.Error(err))
 			return "", err
 		}
 
 	default:
 		err := fmt.Errorf("unknown store type %s; expected disk or memory", opts.StoreType)
-		m.log.Error("Failed opening metadata store", zap.Error(err))
+		launcher.log.Error("Failed opening metadata store", zap.Error(err))
 		return "", err
 	}
 
-	m.closers = append(m.closers, labeledCloser{
+	launcher.closers = append(launcher.closers, labeledCloser{
 		label: "sqlite",
 		closer: func(context.Context) error {
 			return sqlStore.Close()
 		},
 	})
 	if opts.Testing {
-		m.flushers = append(m.flushers, kvStore, sqlStore)
+		launcher.flushers = append(launcher.flushers, kvStore, sqlStore)
 	}
 
 	// Apply migrations to the KV and SQL metadata stores.
 	kvMigrator, err := migration.NewMigrator(
-		m.log.With(zap.String("service", "KV migrations")),
+		launcher.log.With(zap.String("service", "KV migrations")),
 		kvStore,
 		all.Migrations[:]...,
 	)
 	if err != nil {
-		m.log.Error("Failed to initialize kv migrator", zap.Error(err))
+		launcher.log.Error("Failed to initialize kv migrator", zap.Error(err))
 		return "", err
 	}
-	sqlMigrator := sqlite.NewMigrator(sqlStore, m.log.With(zap.String("service", "SQL migrations")))
+	sqlMigrator := sqlite.NewMigrator(sqlStore, launcher.log.With(zap.String("service", "SQL migrations")))
 
 	// If we're migrating a persistent data store, take a backup of the pre-migration state for rollback.
 	if opts.StoreType == DiskStore || opts.StoreType == BoltStore {
@@ -1060,24 +1060,24 @@ func (m *Launcher) openMetaStores(ctx context.Context, opts *InfluxdOpts) (strin
 		sqlMigrator.SetBackupPath(fmt.Sprintf(backupPattern, opts.SqLitePath, info.Version))
 	}
 	if err := kvMigrator.Up(ctx); err != nil {
-		m.log.Error("Failed to apply KV migrations", zap.Error(err))
+		launcher.log.Error("Failed to apply KV migrations", zap.Error(err))
 		return "", err
 	}
 	if err := sqlMigrator.Up(ctx, sqliteMigrations.AllUp); err != nil {
-		m.log.Error("Failed to apply SQL migrations", zap.Error(err))
+		launcher.log.Error("Failed to apply SQL migrations", zap.Error(err))
 		return "", err
 	}
 
-	m.kvStore = kvStore
-	m.sqlStore = sqlStore
+	launcher.kvStore = kvStore
+	launcher.sqlStore = sqlStore
 	return procID, nil
 }
 
 // runHTTP configures and launches a listener for incoming HTTP(S) requests.
 // The listener is run in a separate goroutine. If it fails to start up, it
 // will cancel the launcher.
-func (m *Launcher) runHTTP(opts *InfluxdOpts, handler nethttp.Handler, httpLogger *zap.Logger) error {
-	log := m.log.With(zap.String("service", "tcp-listener"))
+func (launcher *Launcher) runHTTP(opts *InfluxdOpts, handler nethttp.Handler, httpLogger *zap.Logger) error {
+	log := launcher.log.With(zap.String("service", "tcp-listener"))
 
 	httpServer := &nethttp.Server{
 		Addr:              opts.HttpBindAddress,
@@ -1088,7 +1088,7 @@ func (m *Launcher) runHTTP(opts *InfluxdOpts, handler nethttp.Handler, httpLogge
 		IdleTimeout:       opts.HttpIdleTimeout,
 		ErrorLog:          zap.NewStdLog(httpLogger),
 	}
-	m.closers = append(m.closers, labeledCloser{
+	launcher.closers = append(launcher.closers, labeledCloser{
 		label:  "HTTP server",
 		closer: httpServer.Shutdown,
 	})
@@ -1099,23 +1099,23 @@ func (m *Launcher) runHTTP(opts *InfluxdOpts, handler nethttp.Handler, httpLogge
 		return err
 	}
 	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
-		m.httpPort = addr.Port
+		launcher.httpPort = addr.Port
 	}
-	m.wg.Add(1)
+	launcher.wg.Add(1)
 
-	m.tlsEnabled = opts.HttpTLSCert != "" && opts.HttpTLSKey != ""
-	if !m.tlsEnabled {
+	launcher.tlsEnabled = opts.HttpTLSCert != "" && opts.HttpTLSKey != ""
+	if !launcher.tlsEnabled {
 		if opts.HttpTLSCert != "" || opts.HttpTLSKey != "" {
 			log.Warn("TLS requires specifying both cert and key, falling back to HTTP")
 		}
 
 		go func(log *zap.Logger) {
-			defer m.wg.Done()
-			log.Info("Listening", zap.String("transport", "http"), zap.String("addr", opts.HttpBindAddress), zap.Int("port", m.httpPort))
+			defer launcher.wg.Done()
+			log.Info("Listening", zap.String("transport", "http"), zap.String("addr", opts.HttpBindAddress), zap.Int("port", launcher.httpPort))
 
 			if err := httpServer.Serve(ln); err != nethttp.ErrServerClosed {
 				log.Error("Failed to serve HTTP", zap.Error(err))
-				m.cancel()
+				launcher.cancel()
 			}
 			log.Info("Stopping")
 		}(log)
@@ -1171,12 +1171,12 @@ func (m *Launcher) runHTTP(opts *InfluxdOpts, handler nethttp.Handler, httpLogge
 	}
 
 	go func(log *zap.Logger) {
-		defer m.wg.Done()
-		log.Info("Listening", zap.String("transport", "https"), zap.String("addr", opts.HttpBindAddress), zap.Int("port", m.httpPort))
+		defer launcher.wg.Done()
+		log.Info("Listening", zap.String("transport", "https"), zap.String("addr", opts.HttpBindAddress), zap.Int("port", launcher.httpPort))
 
 		if err := httpServer.ServeTLS(ln, opts.HttpTLSCert, opts.HttpTLSKey); err != nethttp.ErrServerClosed {
 			log.Error("Failed to serve HTTPS", zap.Error(err))
-			m.cancel()
+			launcher.cancel()
 		}
 		log.Info("Stopping")
 	}(log)
@@ -1185,12 +1185,12 @@ func (m *Launcher) runHTTP(opts *InfluxdOpts, handler nethttp.Handler, httpLogge
 }
 
 // runReporter configures and launches a periodic telemetry report for the server.
-func (m *Launcher) runReporter(ctx context.Context) {
-	reporter := telemetry.NewReporter(m.log, m.reg)
+func (launcher *Launcher) runReporter(ctx context.Context) {
+	reporter := telemetry.NewReporter(launcher.log, launcher.reg)
 	reporter.Interval = 8 * time.Hour
-	m.wg.Add(1)
+	launcher.wg.Add(1)
 	go func() {
-		defer m.wg.Done()
+		defer launcher.wg.Done()
 		reporter.Report(ctx)
 	}()
 }
@@ -1243,48 +1243,48 @@ func checkForPriorVersion(ctx context.Context, log *zap.Logger, boltPath string,
 }
 
 // OrganizationService returns the internal organization service.
-func (m *Launcher) OrganizationService() platform.OrganizationService {
-	return m.apibackend.OrganizationService
+func (launcher *Launcher) OrganizationService() platform.OrganizationService {
+	return launcher.apibackend.OrganizationService
 }
 
 // QueryController returns the internal query service.
-func (m *Launcher) QueryController() *control.Controller {
-	return m.queryController
+func (launcher *Launcher) QueryController() *control.Controller {
+	return launcher.queryController
 }
 
 // BucketService returns the internal bucket service.
-func (m *Launcher) BucketService() platform.BucketService {
-	return m.apibackend.BucketService
+func (launcher *Launcher) BucketService() platform.BucketService {
+	return launcher.apibackend.BucketService
 }
 
 // UserService returns the internal user service.
-func (m *Launcher) UserService() platform.UserService {
-	return m.apibackend.UserService
+func (launcher *Launcher) UserService() platform.UserService {
+	return launcher.apibackend.UserService
 }
 
 // AuthorizationService returns the internal authorization service.
-func (m *Launcher) AuthorizationService() platform.AuthorizationService {
-	return m.apibackend.AuthorizationService
+func (launcher *Launcher) AuthorizationService() platform.AuthorizationService {
+	return launcher.apibackend.AuthorizationService
 }
 
-func (m *Launcher) AuthorizationV1Service() platform.AuthorizationService {
-	return m.apibackend.AuthorizationV1Service
+func (launcher *Launcher) AuthorizationV1Service() platform.AuthorizationService {
+	return launcher.apibackend.AuthorizationV1Service
 }
 
 // SecretService returns the internal secret service.
-func (m *Launcher) SecretService() platform.SecretService {
-	return m.apibackend.SecretService
+func (launcher *Launcher) SecretService() platform.SecretService {
+	return launcher.apibackend.SecretService
 }
 
 // CheckService returns the internal check service.
-func (m *Launcher) CheckService() platform.CheckService {
-	return m.apibackend.CheckService
+func (launcher *Launcher) CheckService() platform.CheckService {
+	return launcher.apibackend.CheckService
 }
 
-func (m *Launcher) DBRPMappingService() platform.DBRPMappingService {
-	return m.apibackend.DBRPService
+func (launcher *Launcher) DBRPMappingService() platform.DBRPMappingService {
+	return launcher.apibackend.DBRPService
 }
 
-func (m *Launcher) SessionService() platform.SessionService {
-	return m.apibackend.SessionService
+func (launcher *Launcher) SessionService() platform.SessionService {
+	return launcher.apibackend.SessionService
 }

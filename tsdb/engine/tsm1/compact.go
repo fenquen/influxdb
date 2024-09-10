@@ -117,7 +117,7 @@ type DefaultPlanner struct {
 	// which if no writes have been committed to the WAL, the engine will
 	// do a full compaction of the TSM files in this shard. This duration
 	// should always be greater than the CacheFlushWriteColdDuration
-	compactFullWriteColdDuration time.Duration
+	compactFullWriteColdDuration time.Duration // 对应 storage-compact-full-write-cold-duration
 
 	// lastPlanCheck is the last time Plan was called
 	lastPlanCheck time.Time
@@ -208,17 +208,17 @@ func (t *tsmGeneration) hasTombstones() bool {
 	return false
 }
 
-func (c *DefaultPlanner) SetFileStore(fs *FileStore) {
-	c.FileStore = fs
+func (defaultPlanner *DefaultPlanner) SetFileStore(fs *FileStore) {
+	defaultPlanner.FileStore = fs
 }
 
-func (c *DefaultPlanner) ParseFileName(path string) (int, int, error) {
-	return c.FileStore.ParseFileName(path)
+func (defaultPlanner *DefaultPlanner) ParseFileName(path string) (int, int, error) {
+	return defaultPlanner.FileStore.ParseFileName(path)
 }
 
 // FullyCompacted returns true if the shard is fully compacted.
-func (c *DefaultPlanner) FullyCompacted() (bool, string) {
-	gens := c.findGenerations(false)
+func (defaultPlanner *DefaultPlanner) FullyCompacted() (bool, string) {
+	gens := defaultPlanner.findGenerations(false)
 	if len(gens) > 1 {
 		return false, "not fully compacted and not idle because of more than one generation"
 	} else if gens.hasTombstones() {
@@ -231,27 +231,27 @@ func (c *DefaultPlanner) FullyCompacted() (bool, string) {
 // ForceFull causes the planner to return a full compaction plan the next time
 // a plan is requested.  When ForceFull is called, level and optimize plans will
 // not return plans until a full plan is requested and released.
-func (c *DefaultPlanner) ForceFull() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.forceFull = true
+func (defaultPlanner *DefaultPlanner) ForceFull() {
+	defaultPlanner.mu.Lock()
+	defer defaultPlanner.mu.Unlock()
+	defaultPlanner.forceFull = true
 }
 
 // PlanLevel returns a set of TSM files to rewrite for a specific level.
-func (c *DefaultPlanner) PlanLevel(level int) ([]CompactionGroup, int64) {
+func (defaultPlanner *DefaultPlanner) PlanLevel(level int) ([]CompactionGroup, int64) {
 	// If a full plan has been requested, don't plan any levels which will prevent
 	// the full plan from acquiring them.
-	c.mu.RLock()
-	if c.forceFull {
-		c.mu.RUnlock()
+	defaultPlanner.mu.RLock()
+	if defaultPlanner.forceFull {
+		defaultPlanner.mu.RUnlock()
 		return nil, 0
 	}
-	c.mu.RUnlock()
+	defaultPlanner.mu.RUnlock()
 
 	// Determine the generations from all files on disk.  We need to treat
 	// a generation conceptually as a single file even though it may be
 	// split across several files in sequence.
-	generations := c.findGenerations(true)
+	generations := defaultPlanner.findGenerations(true)
 
 	// If there is only one generation and no tombstones, then there's nothing to
 	// do.
@@ -324,7 +324,7 @@ func (c *DefaultPlanner) PlanLevel(level int) ([]CompactionGroup, int64) {
 		}
 	}
 
-	if !c.acquire(cGroups) {
+	if !defaultPlanner.acquire(cGroups) {
 		return nil, int64(len(cGroups))
 	}
 
@@ -334,20 +334,20 @@ func (c *DefaultPlanner) PlanLevel(level int) ([]CompactionGroup, int64) {
 // PlanOptimize returns all TSM files if they are in different generations in order
 // to optimize the index across TSM files.  Each returned compaction group can be
 // compacted concurrently.
-func (c *DefaultPlanner) PlanOptimize() ([]CompactionGroup, int64) {
+func (defaultPlanner *DefaultPlanner) PlanOptimize() ([]CompactionGroup, int64) {
 	// If a full plan has been requested, don't plan any levels which will prevent
 	// the full plan from acquiring them.
-	c.mu.RLock()
-	if c.forceFull {
-		c.mu.RUnlock()
+	defaultPlanner.mu.RLock()
+	if defaultPlanner.forceFull {
+		defaultPlanner.mu.RUnlock()
 		return nil, 0
 	}
-	c.mu.RUnlock()
+	defaultPlanner.mu.RUnlock()
 
 	// Determine the generations from all files on disk.  We need to treat
 	// a generation conceptually as a single file even though it may be
 	// split across several files in sequence.
-	generations := c.findGenerations(true)
+	generations := defaultPlanner.findGenerations(true)
 
 	// If there is only one generation and no tombstones, then there's nothing to
 	// do.
@@ -363,7 +363,7 @@ func (c *DefaultPlanner) PlanOptimize() ([]CompactionGroup, int64) {
 		cur := generations[i]
 
 		// Skip the file if it's over the max size and contains a full block and it does not have any tombstones
-		if cur.count() > 2 && cur.size() > uint64(maxTSMFileSize) && c.FileStore.BlockCount(cur.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock && !cur.hasTombstones() {
+		if cur.count() > 2 && cur.size() > uint64(maxTSMFileSize) && defaultPlanner.FileStore.BlockCount(cur.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock && !cur.hasTombstones() {
 			continue
 		}
 
@@ -416,30 +416,30 @@ func (c *DefaultPlanner) PlanOptimize() ([]CompactionGroup, int64) {
 		cGroups = append(cGroups, cGroup)
 	}
 
-	if !c.acquire(cGroups) {
+	if !defaultPlanner.acquire(cGroups) {
 		return nil, int64(len(cGroups))
 	}
 
 	return cGroups, int64(len(cGroups))
 }
 
-// Plan returns a set of TSM files to rewrite for level 4 or higher.  The planning returns
+// returns a set of TSM files to rewrite for level 4 or higher.  The planning returns
 // multiple groups if possible to allow compactions to run concurrently.
-func (c *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
-	generations := c.findGenerations(true)
+func (defaultPlanner *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
+	generations := defaultPlanner.findGenerations(true)
 
-	c.mu.RLock()
-	forceFull := c.forceFull
-	c.mu.RUnlock()
+	defaultPlanner.mu.RLock()
+	forceFull := defaultPlanner.forceFull
+	defaultPlanner.mu.RUnlock()
 
 	// first check if we should be doing a full compaction because nothing has been written in a long time
-	if forceFull || c.compactFullWriteColdDuration > 0 && time.Since(lastWrite) > c.compactFullWriteColdDuration && len(generations) > 1 {
+	if forceFull || defaultPlanner.compactFullWriteColdDuration > 0 && time.Since(lastWrite) > defaultPlanner.compactFullWriteColdDuration && len(generations) > 1 {
 
 		// Reset the full schedule if we planned because of it.
 		if forceFull {
-			c.mu.Lock()
-			c.forceFull = false
-			c.mu.Unlock()
+			defaultPlanner.mu.Lock()
+			defaultPlanner.forceFull = false
+			defaultPlanner.mu.Unlock()
 		}
 
 		var tsmFiles []string
@@ -448,7 +448,7 @@ func (c *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
 			var skip bool
 
 			// Skip the file if it's over the max size and contains a full block and it does not have any tombstones
-			if len(generations) > 2 && group.size() > uint64(maxTSMFileSize) && c.FileStore.BlockCount(group.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock && !group.hasTombstones() {
+			if len(generations) > 2 && group.size() > uint64(maxTSMFileSize) && defaultPlanner.FileStore.BlockCount(group.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock && !group.hasTombstones() {
 				skip = true
 			}
 
@@ -479,18 +479,18 @@ func (c *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
 		}
 
 		group := []CompactionGroup{tsmFiles}
-		if !c.acquire(group) {
+		if !defaultPlanner.acquire(group) {
 			return nil, int64(len(group))
 		}
 		return group, int64(len(group))
 	}
 
 	// don't plan if nothing has changed in the filestore
-	if c.lastPlanCheck.After(c.FileStore.LastModified()) && !generations.hasTombstones() {
+	if defaultPlanner.lastPlanCheck.After(defaultPlanner.FileStore.LastModified()) && !generations.hasTombstones() {
 		return nil, 0
 	}
 
-	c.lastPlanCheck = time.Now()
+	defaultPlanner.lastPlanCheck = time.Now()
 
 	// If there is only one generation, return early to avoid re-compacting the same file
 	// over and over again.
@@ -524,7 +524,7 @@ func (c *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
 		// Skip the file if it's over the max size and contains a full block or the generation is split
 		// over multiple files.  In the latter case, that would mean the data in the file spilled over
 		// the 2GB limit.
-		if g.size() > uint64(maxTSMFileSize) && c.FileStore.BlockCount(g.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock {
+		if g.size() > uint64(maxTSMFileSize) && defaultPlanner.FileStore.BlockCount(g.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock {
 			start = i + 1
 		}
 
@@ -568,7 +568,7 @@ func (c *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
 			}
 
 			// Skip the file if it's over the max size and it contains a full block
-			if gen.size() >= uint64(maxTSMFileSize) && c.FileStore.BlockCount(gen.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock && !gen.hasTombstones() {
+			if gen.size() >= uint64(maxTSMFileSize) && defaultPlanner.FileStore.BlockCount(gen.files[0].Path, 1) == tsdb.DefaultMaxPointsPerBlock && !gen.hasTombstones() {
 				startIndex++
 				continue
 			}
@@ -615,7 +615,7 @@ func (c *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
 		tsmFiles = append(tsmFiles, cGroup)
 	}
 
-	if !c.acquire(tsmFiles) {
+	if !defaultPlanner.acquire(tsmFiles) {
 		return nil, int64(len(tsmFiles))
 	}
 	return tsmFiles, int64(len(tsmFiles))
@@ -625,31 +625,31 @@ func (c *DefaultPlanner) Plan(lastWrite time.Time) ([]CompactionGroup, int64) {
 // on their filename, then returns the generations in descending order (newest first).
 // If skipInUse is true, tsm files that are part of an existing compaction plan
 // are not returned.
-func (c *DefaultPlanner) findGenerations(skipInUse bool) tsmGenerations {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (defaultPlanner *DefaultPlanner) findGenerations(skipInUse bool) tsmGenerations {
+	defaultPlanner.mu.Lock()
+	defer defaultPlanner.mu.Unlock()
 
-	last := c.lastFindGenerations
-	lastGen := c.lastGenerations
+	last := defaultPlanner.lastFindGenerations
+	lastGen := defaultPlanner.lastGenerations
 
-	if !last.IsZero() && c.FileStore.LastModified().Equal(last) {
+	if !last.IsZero() && defaultPlanner.FileStore.LastModified().Equal(last) {
 		return lastGen
 	}
 
-	genTime := c.FileStore.LastModified()
-	tsmStats := c.FileStore.Stats()
+	genTime := defaultPlanner.FileStore.LastModified()
+	tsmStats := defaultPlanner.FileStore.Stats()
 	generations := make(map[int]*tsmGeneration, len(tsmStats))
 	for _, f := range tsmStats {
-		gen, _, _ := c.ParseFileName(f.Path)
+		gen, _, _ := defaultPlanner.ParseFileName(f.Path)
 
 		// Skip any files that are assigned to a current compaction plan
-		if _, ok := c.filesInUse[f.Path]; skipInUse && ok {
+		if _, ok := defaultPlanner.filesInUse[f.Path]; skipInUse && ok {
 			continue
 		}
 
 		group := generations[gen]
 		if group == nil {
-			group = newTsmGeneration(gen, c.ParseFileName)
+			group = newTsmGeneration(gen, defaultPlanner.ParseFileName)
 			generations[gen] = group
 		}
 		group.files = append(group.files, f)
@@ -663,20 +663,20 @@ func (c *DefaultPlanner) findGenerations(skipInUse bool) tsmGenerations {
 		sort.Sort(orderedGenerations)
 	}
 
-	c.lastFindGenerations = genTime
-	c.lastGenerations = orderedGenerations
+	defaultPlanner.lastFindGenerations = genTime
+	defaultPlanner.lastGenerations = orderedGenerations
 
 	return orderedGenerations
 }
 
-func (c *DefaultPlanner) acquire(groups []CompactionGroup) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (defaultPlanner *DefaultPlanner) acquire(groups []CompactionGroup) bool {
+	defaultPlanner.mu.Lock()
+	defer defaultPlanner.mu.Unlock()
 
 	// See if the new files are already in use
 	for _, g := range groups {
 		for _, f := range g {
-			if _, ok := c.filesInUse[f]; ok {
+			if _, ok := defaultPlanner.filesInUse[f]; ok {
 				return false
 			}
 		}
@@ -685,7 +685,7 @@ func (c *DefaultPlanner) acquire(groups []CompactionGroup) bool {
 	// Mark all the new files in use
 	for _, g := range groups {
 		for _, f := range g {
-			c.filesInUse[f] = struct{}{}
+			defaultPlanner.filesInUse[f] = struct{}{}
 		}
 	}
 	return true
@@ -693,12 +693,12 @@ func (c *DefaultPlanner) acquire(groups []CompactionGroup) bool {
 
 // Release removes the files reference in each compaction group allowing new plans
 // to be able to use them.
-func (c *DefaultPlanner) Release(groups []CompactionGroup) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (defaultPlanner *DefaultPlanner) Release(groups []CompactionGroup) {
+	defaultPlanner.mu.Lock()
+	defer defaultPlanner.mu.Unlock()
 	for _, g := range groups {
 		for _, f := range g {
-			delete(c.filesInUse, f)
+			delete(defaultPlanner.filesInUse, f)
 		}
 	}
 }

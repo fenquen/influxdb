@@ -107,7 +107,7 @@ func cmdRunE(ctx context.Context, o *InfluxdOpts) func() error {
 
 		fluxinit.FluxInit()
 
-		l := NewLauncher()
+		launcher := NewLauncher()
 
 		// Create top level logger
 		logconf := &influxlogger.Config{
@@ -118,19 +118,19 @@ func cmdRunE(ctx context.Context, o *InfluxdOpts) func() error {
 		if err != nil {
 			return err
 		}
-		l.log = logger
+		launcher.log = logger
 
 		// Start the launcher and wait for it to exit on SIGINT or SIGTERM.
-		if err := l.run(signals.WithStandardSignals(ctx), o); err != nil {
+		if err := launcher.run(signals.WithStandardSignals(ctx), o); err != nil {
 			return err
 		}
-		<-l.Done()
+		<-launcher.Done()
 
 		// Tear down the launcher, allowing it a few seconds to finish any
 		// in-progress requests.
 		shutdownCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		return l.Shutdown(shutdownCtx)
+		return launcher.Shutdown(shutdownCtx)
 	}
 }
 
@@ -246,239 +246,239 @@ func NewOpts(viper *viper.Viper) *InfluxdOpts {
 	}
 }
 
-// BindCliOpts returns a list of options which can be added to a cobra command
+// returns a list of options which can be added to a cobra command
 // in order to set options over the CLI.
-func (o *InfluxdOpts) BindCliOpts() []cli.Opt {
+func (influxdOpts *InfluxdOpts) BindCliOpts() []cli.Opt {
 	return []cli.Opt{
 		{
-			DestP:   &o.LogLevel,
+			DestP:   &influxdOpts.LogLevel,
 			Flag:    "log-level",
-			Default: o.LogLevel,
+			Default: influxdOpts.LogLevel,
 			Desc:    "supported log levels are debug, info, and error",
 		},
 		{
-			DestP:   &o.FluxLogEnabled,
+			DestP:   &influxdOpts.FluxLogEnabled,
 			Flag:    "flux-log-enabled",
-			Default: o.FluxLogEnabled,
+			Default: influxdOpts.FluxLogEnabled,
 			Desc:    "enables detailed logging for flux queries",
 		},
 		{
-			DestP: &o.TracingType,
+			DestP: &influxdOpts.TracingType,
 			Flag:  "tracing-type",
 			Desc:  fmt.Sprintf("supported tracing types are %s, %s", LogTracing, JaegerTracing),
 		},
 		{
-			DestP:   &o.BoltPath,
+			DestP:   &influxdOpts.BoltPath,
 			Flag:    "bolt-path",
-			Default: o.BoltPath,
+			Default: influxdOpts.BoltPath,
 			Desc:    "path to boltdb database",
 		},
 		{
-			DestP: &o.SqLitePath,
+			DestP: &influxdOpts.SqLitePath,
 			Flag:  "sqlite-path",
 			Desc:  fmt.Sprintf("path to sqlite database. if not set, sqlite database will be stored in the bolt-path directory as %q.", sqlite.DefaultFilename),
 		},
 		{
-			DestP: &o.AssetsPath,
+			DestP: &influxdOpts.AssetsPath,
 			Flag:  "assets-path",
 			Desc:  "override default assets by serving from a specific directory (developer mode)",
 		},
 		{
-			DestP:   &o.StoreType,
+			DestP:   &influxdOpts.StoreType,
 			Flag:    "store",
-			Default: o.StoreType,
+			Default: influxdOpts.StoreType,
 			Desc:    "backing store for REST resources (disk or memory)",
 		},
 		{
-			DestP:   &o.Testing,
+			DestP:   &influxdOpts.Testing,
 			Flag:    "e2e-testing",
-			Default: o.Testing,
+			Default: influxdOpts.Testing,
 			Desc:    "add /debug/flush endpoint to clear stores; used for end-to-end tests",
 		},
 		{
-			DestP:   &o.TestingAlwaysAllowSetup,
+			DestP:   &influxdOpts.TestingAlwaysAllowSetup,
 			Flag:    "testing-always-allow-setup",
-			Default: o.TestingAlwaysAllowSetup,
+			Default: influxdOpts.TestingAlwaysAllowSetup,
 			Desc:    "ensures the /api/v2/setup endpoint always returns true to allow onboarding",
 		},
 		{
-			DestP:   &o.EnginePath,
+			DestP:   &influxdOpts.EnginePath,
 			Flag:    "engine-path",
-			Default: o.EnginePath,
+			Default: influxdOpts.EnginePath,
 			Desc:    "path to persistent engine files",
 		},
 		{
-			DestP:   &o.SecretStore,
+			DestP:   &influxdOpts.SecretStore,
 			Flag:    "secret-store",
-			Default: o.SecretStore,
+			Default: influxdOpts.SecretStore,
 			Desc:    "data store for secrets (bolt or vault)",
 		},
 		{
-			DestP:   &o.ReportingDisabled,
+			DestP:   &influxdOpts.ReportingDisabled,
 			Flag:    "reporting-disabled",
-			Default: o.ReportingDisabled,
+			Default: influxdOpts.ReportingDisabled,
 			Desc:    "disable sending telemetry data to https://telemetry.influxdata.com every 8 hours",
 		},
 		{
-			DestP:   &o.SessionLength,
+			DestP:   &influxdOpts.SessionLength,
 			Flag:    "session-length",
-			Default: o.SessionLength,
+			Default: influxdOpts.SessionLength,
 			Desc:    "ttl in minutes for newly created sessions",
 		},
 		{
-			DestP:   &o.SessionRenewDisabled,
+			DestP:   &influxdOpts.SessionRenewDisabled,
 			Flag:    "session-renew-disabled",
-			Default: o.SessionRenewDisabled,
+			Default: influxdOpts.SessionRenewDisabled,
 			Desc:    "disables automatically extending session ttl on request",
 		},
 		{
-			DestP: &o.VaultConfig.Address,
+			DestP: &influxdOpts.VaultConfig.Address,
 			Flag:  "vault-addr",
 			Desc:  "address of the Vault server expressed as a URL and port, for example: https://127.0.0.1:8200/.",
 		},
 		{
-			DestP: &o.VaultConfig.ClientTimeout,
+			DestP: &influxdOpts.VaultConfig.ClientTimeout,
 			Flag:  "vault-client-timeout",
 			Desc:  "timeout variable. The default value is 60s.",
 		},
 		{
-			DestP: &o.VaultConfig.MaxRetries,
+			DestP: &influxdOpts.VaultConfig.MaxRetries,
 			Flag:  "vault-max-retries",
 			Desc:  "maximum number of retries when a 5xx error code is encountered. The default is 2, for three total attempts. Set this to 0 or less to disable retrying.",
 		},
 		{
-			DestP: &o.VaultConfig.CACert,
+			DestP: &influxdOpts.VaultConfig.CACert,
 			Flag:  "vault-cacert",
 			Desc:  "path to a PEM-encoded CA certificate file on the local disk. This file is used to verify the Vault server's SSL certificate. This environment variable takes precedence over VAULT_CAPATH.",
 		},
 		{
-			DestP: &o.VaultConfig.CAPath,
+			DestP: &influxdOpts.VaultConfig.CAPath,
 			Flag:  "vault-capath",
 			Desc:  "path to a directory of PEM-encoded CA certificate files on the local disk. These certificates are used to verify the Vault server's SSL certificate.",
 		},
 		{
-			DestP: &o.VaultConfig.ClientCert,
+			DestP: &influxdOpts.VaultConfig.ClientCert,
 			Flag:  "vault-client-cert",
 			Desc:  "path to a PEM-encoded client certificate on the local disk. This file is used for TLS communication with the Vault server.",
 		},
 		{
-			DestP: &o.VaultConfig.ClientKey,
+			DestP: &influxdOpts.VaultConfig.ClientKey,
 			Flag:  "vault-client-key",
 			Desc:  "path to an unencrypted, PEM-encoded private key on disk which corresponds to the matching client certificate.",
 		},
 		{
-			DestP: &o.VaultConfig.InsecureSkipVerify,
+			DestP: &influxdOpts.VaultConfig.InsecureSkipVerify,
 			Flag:  "vault-skip-verify",
 			Desc:  "do not verify Vault's presented certificate before communicating with it. Setting this variable is not recommended and voids Vault's security model.",
 		},
 		{
-			DestP: &o.VaultConfig.TLSServerName,
+			DestP: &influxdOpts.VaultConfig.TLSServerName,
 			Flag:  "vault-tls-server-name",
 			Desc:  "name to use as the SNI host when connecting via TLS.",
 		},
 		{
-			DestP: &o.VaultConfig.Token,
+			DestP: &influxdOpts.VaultConfig.Token,
 			Flag:  "vault-token",
 			Desc:  "vault authentication token",
 		},
 
 		// HTTP options
 		{
-			DestP:   &o.HttpBindAddress,
+			DestP:   &influxdOpts.HttpBindAddress,
 			Flag:    "http-bind-address",
-			Default: o.HttpBindAddress,
+			Default: influxdOpts.HttpBindAddress,
 			Desc:    "bind address for the REST HTTP API",
 		},
 		{
-			DestP:   &o.HttpReadHeaderTimeout,
+			DestP:   &influxdOpts.HttpReadHeaderTimeout,
 			Flag:    "http-read-header-timeout",
-			Default: o.HttpReadHeaderTimeout,
+			Default: influxdOpts.HttpReadHeaderTimeout,
 			Desc:    "max duration the server should spend trying to read HTTP headers for new requests. Set to 0 for no timeout",
 		},
 		{
-			DestP:   &o.HttpReadTimeout,
+			DestP:   &influxdOpts.HttpReadTimeout,
 			Flag:    "http-read-timeout",
-			Default: o.HttpReadTimeout,
+			Default: influxdOpts.HttpReadTimeout,
 			Desc:    "max duration the server should spend trying to read the entirety of new requests. Set to 0 for no timeout",
 		},
 		{
-			DestP:   &o.HttpWriteTimeout,
+			DestP:   &influxdOpts.HttpWriteTimeout,
 			Flag:    "http-write-timeout",
-			Default: o.HttpWriteTimeout,
+			Default: influxdOpts.HttpWriteTimeout,
 			Desc:    "max duration the server should spend on processing+responding to requests. Set to 0 for no timeout",
 		},
 		{
-			DestP:   &o.HttpIdleTimeout,
+			DestP:   &influxdOpts.HttpIdleTimeout,
 			Flag:    "http-idle-timeout",
-			Default: o.HttpIdleTimeout,
+			Default: influxdOpts.HttpIdleTimeout,
 			Desc:    "max duration the server should keep established connections alive while waiting for new requests. Set to 0 for no timeout",
 		},
 		{
-			DestP: &o.HttpTLSCert,
+			DestP: &influxdOpts.HttpTLSCert,
 			Flag:  "tls-cert",
 			Desc:  "TLS certificate for HTTPs",
 		},
 		{
-			DestP: &o.HttpTLSKey,
+			DestP: &influxdOpts.HttpTLSKey,
 			Flag:  "tls-key",
 			Desc:  "TLS key for HTTPs",
 		},
 		{
-			DestP:   &o.HttpTLSMinVersion,
+			DestP:   &influxdOpts.HttpTLSMinVersion,
 			Flag:    "tls-min-version",
-			Default: o.HttpTLSMinVersion,
+			Default: influxdOpts.HttpTLSMinVersion,
 			Desc:    "Minimum accepted TLS version",
 		},
 		{
-			DestP:   &o.HttpTLSStrictCiphers,
+			DestP:   &influxdOpts.HttpTLSStrictCiphers,
 			Flag:    "tls-strict-ciphers",
-			Default: o.HttpTLSStrictCiphers,
+			Default: influxdOpts.HttpTLSStrictCiphers,
 			Desc:    "Restrict accept ciphers to: ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, ECDHE_RSA_WITH_AES_128_GCM_SHA256, ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, ECDHE_RSA_WITH_AES_256_GCM_SHA384, ECDHE_ECDSA_WITH_CHACHA20_POLY1305, ECDHE_RSA_WITH_CHACHA20_POLY1305",
 		},
 
 		{
-			DestP:   &o.NoTasks,
+			DestP:   &influxdOpts.NoTasks,
 			Flag:    "no-tasks",
-			Default: o.NoTasks,
+			Default: influxdOpts.NoTasks,
 			Desc:    "disables the task scheduler",
 		},
 		{
-			DestP:   &o.ConcurrencyQuota,
+			DestP:   &influxdOpts.ConcurrencyQuota,
 			Flag:    "query-concurrency",
-			Default: o.ConcurrencyQuota,
+			Default: influxdOpts.ConcurrencyQuota,
 			Desc:    "the number of queries that are allowed to execute concurrently. Set to 0 to allow an unlimited number of concurrent queries",
 		},
 		{
-			DestP:   &o.InitialMemoryBytesQuotaPerQuery,
+			DestP:   &influxdOpts.InitialMemoryBytesQuotaPerQuery,
 			Flag:    "query-initial-memory-bytes",
-			Default: o.InitialMemoryBytesQuotaPerQuery,
+			Default: influxdOpts.InitialMemoryBytesQuotaPerQuery,
 			Desc:    "the initial number of bytes allocated for a query when it is started. If this is unset, then query-memory-bytes will be used",
 		},
 		{
-			DestP:   &o.MemoryBytesQuotaPerQuery,
+			DestP:   &influxdOpts.MemoryBytesQuotaPerQuery,
 			Flag:    "query-memory-bytes",
-			Default: o.MemoryBytesQuotaPerQuery,
+			Default: influxdOpts.MemoryBytesQuotaPerQuery,
 			Desc:    "maximum number of bytes a query is allowed to use at any given time. This must be greater or equal to query-initial-memory-bytes",
 		},
 		{
-			DestP:   &o.MaxMemoryBytes,
+			DestP:   &influxdOpts.MaxMemoryBytes,
 			Flag:    "query-max-memory-bytes",
-			Default: o.MaxMemoryBytes,
+			Default: influxdOpts.MaxMemoryBytes,
 			Desc:    "the maximum amount of memory used for queries. Can only be set when query-concurrency is limited. If this is unset, then this number is query-concurrency * query-memory-bytes",
 		},
 		{
-			DestP:   &o.QueueSize,
+			DestP:   &influxdOpts.QueueSize,
 			Flag:    "query-queue-size",
-			Default: o.QueueSize,
+			Default: influxdOpts.QueueSize,
 			Desc:    "the number of queries that are allowed to be awaiting execution before new queries are rejected. Must be > 0 if query-concurrency is not unlimited",
 		},
 		{
-			DestP: &o.FeatureFlags,
+			DestP: &influxdOpts.FeatureFlags,
 			Flag:  "feature-flags",
 			Desc:  "feature flag overrides",
 		},
 		{
-			DestP:   &o.InstanceID,
+			DestP:   &influxdOpts.InstanceID,
 			Flag:    "instance-id",
 			Default: "",
 			Desc:    "add an instance id for replications to prevent collisions and allow querying by edge node",
@@ -486,157 +486,157 @@ func (o *InfluxdOpts) BindCliOpts() []cli.Opt {
 
 		// storage configuration
 		{
-			DestP:   &o.StorageConfig.WriteTimeout,
+			DestP:   &influxdOpts.StorageConfig.WriteTimeout,
 			Flag:    "storage-write-timeout",
-			Default: o.StorageConfig.WriteTimeout,
+			Default: influxdOpts.StorageConfig.WriteTimeout,
 			Desc:    "The max amount of time the engine will spend completing a write request before cancelling with a timeout.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.WALFsyncDelay,
+			DestP: &influxdOpts.StorageConfig.Data.WALFsyncDelay,
 			Flag:  "storage-wal-fsync-delay",
 			Desc:  "The amount of time that a write will wait before fsyncing. A duration greater than 0 can be used to batch up multiple fsync calls. This is useful for slower disks or when WAL write contention is seen.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.WALMaxConcurrentWrites,
+			DestP: &influxdOpts.StorageConfig.Data.WALMaxConcurrentWrites,
 			Flag:  "storage-wal-max-concurrent-writes",
 			Desc:  "The max number of writes that will attempt to write to the WAL at a time. (default <nprocs> * 2)",
 		},
 		{
-			DestP:   &o.StorageConfig.Data.WALMaxWriteDelay,
+			DestP:   &influxdOpts.StorageConfig.Data.WALMaxWriteDelay,
 			Flag:    "storage-wal-max-write-delay",
-			Default: o.StorageConfig.Data.WALMaxWriteDelay,
+			Default: influxdOpts.StorageConfig.Data.WALMaxWriteDelay,
 			Desc:    "The max amount of time a write will wait when the WAL already has `storage-wal-max-concurrent-writes` active writes. Set to 0 to disable the timeout.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.ValidateKeys,
+			DestP: &influxdOpts.StorageConfig.Data.ValidateKeys,
 			Flag:  "storage-validate-keys",
 			Desc:  "Validates incoming writes to ensure keys only have valid unicode characters.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.SkipFieldSizeValidation,
+			DestP: &influxdOpts.StorageConfig.Data.SkipFieldSizeValidation,
 			Flag:  "storage-no-validate-field-size",
 			Desc:  "Skip field-size validation on incoming writes.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.CacheMaxMemorySize,
+			DestP: &influxdOpts.StorageConfig.Data.CacheMaxMemorySize,
 			Flag:  "storage-cache-max-memory-size",
 			Desc:  "The maximum size a shard's cache can reach before it starts rejecting writes.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.CacheSnapshotMemorySize,
+			DestP: &influxdOpts.StorageConfig.Data.CacheSnapshotMemorySize,
 			Flag:  "storage-cache-snapshot-memory-size",
 			Desc:  "The size at which the engine will snapshot the cache and write it to a TSM file, freeing up memory.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.CacheSnapshotWriteColdDuration,
+			DestP: &influxdOpts.StorageConfig.Data.CacheSnapshotWriteColdDuration,
 			Flag:  "storage-cache-snapshot-write-cold-duration",
 			Desc:  "The length of time at which the engine will snapshot the cache and write it to a new TSM file if the shard hasn't received writes or deletes.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.CompactFullWriteColdDuration,
+			DestP: &influxdOpts.StorageConfig.Data.CompactFullWriteColdDuration,
 			Flag:  "storage-compact-full-write-cold-duration",
 			Desc:  "The duration at which the engine will compact all TSM files in a shard if it hasn't received a write or delete.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.CompactThroughputBurst,
+			DestP: &influxdOpts.StorageConfig.Data.CompactThroughputBurst,
 			Flag:  "storage-compact-throughput-burst",
 			Desc:  "The rate limit in bytes per second that we will allow TSM compactions to write to disk.",
 		},
 		// limits
 		{
-			DestP: &o.StorageConfig.Data.MaxConcurrentCompactions,
+			DestP: &influxdOpts.StorageConfig.Data.MaxConcurrentCompactions,
 			Flag:  "storage-max-concurrent-compactions",
 			Desc:  "The maximum number of concurrent full and level compactions that can run at one time.  A value of 0 results in 50% of runtime.GOMAXPROCS(0) used at runtime.  Any number greater than 0 limits compactions to that value.  This setting does not apply to cache snapshotting.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.MaxIndexLogFileSize,
+			DestP: &influxdOpts.StorageConfig.Data.MaxIndexLogFileSize,
 			Flag:  "storage-max-index-log-file-size",
 			Desc:  "The threshold, in bytes, when an index write-ahead log file will compact into an index file. Lower sizes will cause log files to be compacted more quickly and result in lower heap usage at the expense of write throughput.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.SeriesIDSetCacheSize,
+			DestP: &influxdOpts.StorageConfig.Data.SeriesIDSetCacheSize,
 			Flag:  "storage-series-id-set-cache-size",
 			Desc:  "The size of the internal cache used in the TSI index to store previously calculated series results.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.SeriesFileMaxConcurrentSnapshotCompactions,
+			DestP: &influxdOpts.StorageConfig.Data.SeriesFileMaxConcurrentSnapshotCompactions,
 			Flag:  "storage-series-file-max-concurrent-snapshot-compactions",
-			Desc:  "The maximum number of concurrent snapshot compactions that can be running at one time across all series partitions in a database.",
+			Desc:  "The maximum number of concurrent seriesFile snapshot compactions that can be running at one time across all series partitions in a database.",
 		},
 		{
-			DestP: &o.StorageConfig.Data.TSMWillNeed,
+			DestP: &influxdOpts.StorageConfig.Data.TSMWillNeed,
 			Flag:  "storage-tsm-use-madv-willneed",
 			Desc:  "Controls whether we hint to the kernel that we intend to page in mmap'd sections of TSM files.",
 		},
 		{
-			DestP: &o.StorageConfig.RetentionService.CheckInterval,
+			DestP: &influxdOpts.StorageConfig.RetentionService.CheckInterval,
 			Flag:  "storage-retention-check-interval",
 			Desc:  "The interval of time when retention policy enforcement checks run.",
 		},
 		{
-			DestP: &o.StorageConfig.PrecreatorConfig.CheckInterval,
+			DestP: &influxdOpts.StorageConfig.PrecreatorConfig.CheckInterval,
 			Flag:  "storage-shard-precreator-check-interval",
 			Desc:  "The interval of time when the check to pre-create new shards runs.",
 		},
 		{
-			DestP: &o.StorageConfig.PrecreatorConfig.AdvancePeriod,
+			DestP: &influxdOpts.StorageConfig.PrecreatorConfig.AdvancePeriod,
 			Flag:  "storage-shard-precreator-advance-period",
 			Desc:  "The default period ahead of the endtime of a shard group that its successor group is created.",
 		},
 
 		// InfluxQL Coordinator Config
 		{
-			DestP: &o.CoordinatorConfig.MaxSelectPointN,
+			DestP: &influxdOpts.CoordinatorConfig.MaxSelectPointN,
 			Flag:  "influxql-max-select-point",
 			Desc:  "The maximum number of points a SELECT can process. A value of 0 will make the maximum point count unlimited. This will only be checked every second so queries will not be aborted immediately when hitting the limit.",
 		},
 		{
-			DestP: &o.CoordinatorConfig.MaxSelectSeriesN,
+			DestP: &influxdOpts.CoordinatorConfig.MaxSelectSeriesN,
 			Flag:  "influxql-max-select-series",
 			Desc:  "The maximum number of series a SELECT can run. A value of 0 will make the maximum series count unlimited.",
 		},
 		{
-			DestP: &o.CoordinatorConfig.MaxSelectBucketsN,
+			DestP: &influxdOpts.CoordinatorConfig.MaxSelectBucketsN,
 			Flag:  "influxql-max-select-buckets",
 			Desc:  "The maximum number of group by time bucket a SELECT can create. A value of zero will max the maximum number of buckets unlimited.",
 		},
 
 		// NATS config
 		{
-			DestP:   &o.NatsPort,
+			DestP:   &influxdOpts.NatsPort,
 			Flag:    "nats-port",
 			Desc:    "deprecated: nats has been replaced",
-			Default: o.NatsPort,
+			Default: influxdOpts.NatsPort,
 			Hidden:  true,
 		},
 		{
-			DestP:   &o.NatsMaxPayloadBytes,
+			DestP:   &influxdOpts.NatsMaxPayloadBytes,
 			Flag:    "nats-max-payload-bytes",
 			Desc:    "deprecated: nats has been replaced",
-			Default: o.NatsMaxPayloadBytes,
+			Default: influxdOpts.NatsMaxPayloadBytes,
 			Hidden:  true,
 		},
 
 		// Pprof config
 		{
-			DestP:   &o.ProfilingDisabled,
+			DestP:   &influxdOpts.ProfilingDisabled,
 			Flag:    "pprof-disabled",
 			Desc:    "Don't expose debugging information over HTTP at /debug/pprof",
-			Default: o.ProfilingDisabled,
+			Default: influxdOpts.ProfilingDisabled,
 		},
 
 		// Metrics config
 		{
-			DestP:   &o.MetricsDisabled,
+			DestP:   &influxdOpts.MetricsDisabled,
 			Flag:    "metrics-disabled",
 			Desc:    "Don't expose metrics over HTTP at /metrics",
-			Default: o.MetricsDisabled,
+			Default: influxdOpts.MetricsDisabled,
 		},
 		// UI Config
 		{
-			DestP:   &o.UIDisabled,
+			DestP:   &influxdOpts.UIDisabled,
 			Flag:    "ui-disabled",
-			Default: o.UIDisabled,
+			Default: influxdOpts.UIDisabled,
 			Desc:    "Disable the InfluxDB UI",
 		},
 
@@ -652,9 +652,9 @@ func (o *InfluxdOpts) BindCliOpts() []cli.Opt {
 		// need to introduce --hardening-ip-validation-enabled (or
 		// similar).
 		{
-			DestP:   &o.HardeningEnabled,
+			DestP:   &influxdOpts.HardeningEnabled,
 			Flag:    "hardening-enabled",
-			Default: o.HardeningEnabled,
+			Default: influxdOpts.HardeningEnabled,
 			Desc:    "enable hardening options (disallow private IPs within flux and templates HTTP requests)",
 		},
 	}

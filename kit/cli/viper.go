@@ -46,16 +46,16 @@ type Program struct {
 // to all environment variables.
 //
 // This is to simplify the viper/cobra boilerplate.
-func NewCommand(v *viper.Viper, p *Program) (*cobra.Command, error) {
+func NewCommand(v *viper.Viper, program *Program) (*cobra.Command, error) {
 	cmd := &cobra.Command{
-		Use:  p.Name,
+		Use:  program.Name,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return p.Run()
+			return program.Run()
 		},
 	}
 
-	v.SetEnvPrefix(strings.ToUpper(p.Name))
+	v.SetEnvPrefix(strings.ToUpper(program.Name))
 	v.AutomaticEnv()
 	// This normalizes "-" to an underscore in env names.
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
@@ -68,7 +68,7 @@ func NewCommand(v *viper.Viper, p *Program) (*cobra.Command, error) {
 	if err := initializeConfig(v); err != nil {
 		return nil, fmt.Errorf("failed to load config file: %w", err)
 	}
-	if err := BindOptions(v, cmd, p.Opts); err != nil {
+	if err := BindOptions(v, cmd, program.Opts); err != nil {
 		return nil, fmt.Errorf("failed to bind config options: %w", err)
 	}
 

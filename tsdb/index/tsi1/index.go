@@ -140,7 +140,7 @@ type Index struct {
 	// The following may be set when initializing an Index.
 	path               string        // Root directory of the index partitions.
 	disableCompactions bool          // Initially disables compactions on the index.
-	maxLogFileSize     int64         // Maximum size of a LogFile before it's compacted.
+	maxLogFileSize     int64         // Maximum size of a LogFile before it's compacted. 对应 storage-max-index-log-file-size
 	maxLogFileAge      time.Duration // Maximum age of a LogFile before it's compacted.
 	logfileBufferSize  int           // The size of the buffer used by the LogFile.
 	disableFsync       bool          // Disables flushing buffers and fsyning files. Used when working with indexes offline.
@@ -161,8 +161,8 @@ type Index struct {
 	PartitionN uint64
 }
 
-func (i *Index) UniqueReferenceID() uintptr {
-	return uintptr(unsafe.Pointer(i))
+func (index *Index) UniqueReferenceID() uintptr {
+	return uintptr(unsafe.Pointer(index))
 }
 
 // NewIndex returns a new instance of Index.
@@ -191,60 +191,60 @@ func NewIndex(sfile *tsdb.SeriesFile, database string, options ...IndexOption) *
 }
 
 // Bytes estimates the memory footprint of this Index, in bytes.
-func (i *Index) Bytes() int {
+func (index *Index) Bytes() int {
 	var b int
-	i.mu.RLock()
+	index.mu.RLock()
 	b += 24 // mu RWMutex is 24 bytes
-	b += int(unsafe.Sizeof(i.partitions))
-	for _, p := range i.partitions {
+	b += int(unsafe.Sizeof(index.partitions))
+	for _, p := range index.partitions {
 		b += int(unsafe.Sizeof(p)) + p.bytes()
 	}
-	b += int(unsafe.Sizeof(i.opened))
-	b += int(unsafe.Sizeof(i.path)) + len(i.path)
-	b += int(unsafe.Sizeof(i.disableCompactions))
-	b += int(unsafe.Sizeof(i.maxLogFileSize))
-	b += int(unsafe.Sizeof(i.maxLogFileAge))
-	b += int(unsafe.Sizeof(i.logger))
-	b += int(unsafe.Sizeof(i.sfile))
+	b += int(unsafe.Sizeof(index.opened))
+	b += int(unsafe.Sizeof(index.path)) + len(index.path)
+	b += int(unsafe.Sizeof(index.disableCompactions))
+	b += int(unsafe.Sizeof(index.maxLogFileSize))
+	b += int(unsafe.Sizeof(index.maxLogFileAge))
+	b += int(unsafe.Sizeof(index.logger))
+	b += int(unsafe.Sizeof(index.sfile))
 	// Do not count SeriesFile because it belongs to the code that constructed this Index.
-	b += int(unsafe.Sizeof(i.mSketch)) + i.mSketch.Bytes()
-	b += int(unsafe.Sizeof(i.mTSketch)) + i.mTSketch.Bytes()
-	b += int(unsafe.Sizeof(i.sSketch)) + i.sSketch.Bytes()
-	b += int(unsafe.Sizeof(i.sTSketch)) + i.sTSketch.Bytes()
-	b += int(unsafe.Sizeof(i.database)) + len(i.database)
-	b += int(unsafe.Sizeof(i.version))
-	b += int(unsafe.Sizeof(i.PartitionN))
-	i.mu.RUnlock()
+	b += int(unsafe.Sizeof(index.mSketch)) + index.mSketch.Bytes()
+	b += int(unsafe.Sizeof(index.mTSketch)) + index.mTSketch.Bytes()
+	b += int(unsafe.Sizeof(index.sSketch)) + index.sSketch.Bytes()
+	b += int(unsafe.Sizeof(index.sTSketch)) + index.sTSketch.Bytes()
+	b += int(unsafe.Sizeof(index.database)) + len(index.database)
+	b += int(unsafe.Sizeof(index.version))
+	b += int(unsafe.Sizeof(index.PartitionN))
+	index.mu.RUnlock()
 	return b
 }
 
 // Database returns the name of the database the index was initialized with.
-func (i *Index) Database() string {
-	return i.database
+func (index *Index) Database() string {
+	return index.database
 }
 
 // WithLogger sets the logger on the index after it's been created.
 //
 // It's not safe to call WithLogger after the index has been opened, or before
 // it has been closed.
-func (i *Index) WithLogger(l *zap.Logger) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	i.logger = l.With(zap.String("index", "tsi"))
+func (index *Index) WithLogger(l *zap.Logger) {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	index.logger = l.With(zap.String("index", "tsi"))
 }
 
 // Type returns the type of Index this is.
-func (i *Index) Type() string { return IndexName }
+func (index *Index) Type() string { return IndexName }
 
 // SeriesFile returns the series file attached to the index.
-func (i *Index) SeriesFile() *tsdb.SeriesFile { return i.sfile }
+func (index *Index) SeriesFile() *tsdb.SeriesFile { return index.sfile }
 
 // SeriesIDSet returns the set of series ids associated with series in this
 // index. Any series IDs for series no longer present in the index are filtered out.
-func (i *Index) SeriesIDSet() *tsdb.SeriesIDSet {
+func (index *Index) SeriesIDSet() *tsdb.SeriesIDSet {
 	seriesIDSet := tsdb.NewSeriesIDSet()
-	others := make([]*tsdb.SeriesIDSet, 0, i.PartitionN)
-	for _, p := range i.partitions {
+	others := make([]*tsdb.SeriesIDSet, 0, index.PartitionN)
+	for _, p := range index.partitions {
 		others = append(others, p.seriesIDSet)
 	}
 	seriesIDSet.Merge(others...)
@@ -252,108 +252,108 @@ func (i *Index) SeriesIDSet() *tsdb.SeriesIDSet {
 }
 
 // Open opens the index.
-func (i *Index) Open() (rErr error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
+func (index *Index) Open() (rErr error) {
+	index.mu.Lock()
+	defer index.mu.Unlock()
 
-	if i.opened {
+	if index.opened {
 		return errors.New("index already open")
 	}
 
 	// Ensure root exists.
-	if err := os.MkdirAll(i.path, 0777); err != nil {
+	if err := os.MkdirAll(index.path, 0777); err != nil {
 		return err
 	}
 
 	// Initialize index partitions.
-	i.partitions = make([]*Partition, i.PartitionN)
-	for j := 0; j < len(i.partitions); j++ {
-		p := NewPartition(i.sfile, filepath.Join(i.path, fmt.Sprint(j)))
-		p.MaxLogFileSize = i.maxLogFileSize
-		p.MaxLogFileAge = i.maxLogFileAge
-		p.nosync = i.disableFsync
-		p.logbufferSize = i.logfileBufferSize
-		p.logger = i.logger.With(zap.String("tsi1_partition", fmt.Sprint(j+1)))
-		i.partitions[j] = p
+	index.partitions = make([]*Partition, index.PartitionN)
+	for j := 0; j < len(index.partitions); j++ {
+		partition := NewPartition(index.sfile, filepath.Join(index.path, fmt.Sprint(j)))
+		partition.MaxLogFileSize = index.maxLogFileSize
+		partition.MaxLogFileAge = index.maxLogFileAge
+		partition.nosync = index.disableFsync
+		partition.logbufferSize = index.logfileBufferSize
+		partition.logger = index.logger.With(zap.String("tsi1_partition", fmt.Sprint(j+1)))
+		index.partitions[j] = partition
 	}
 
 	// Open all the Partitions in parallel.
-	partitionN := len(i.partitions)
-	n := i.availableThreads()
+	partitionN := len(index.partitions)
+	n := index.availableThreads()
 
 	// Run fn on each partition using a fixed number of goroutines.
 	g := new(errgroup.Group)
 	g.SetLimit(n)
 	for idx := 0; idx < partitionN; idx++ {
-		g.Go(i.partitions[idx].Open)
+		g.Go(index.partitions[idx].Open)
 	}
 	err := g.Wait()
-	defer i.cleanUpFail(&rErr)
+	defer index.cleanUpFail(&rErr)
 	if err != nil {
 		return err
 	}
 
 	// Refresh cached sketches.
-	if err := i.updateSeriesSketches(); err != nil {
+	if err := index.updateSeriesSketches(); err != nil {
 		return err
-	} else if err := i.updateMeasurementSketches(); err != nil {
+	} else if err := index.updateMeasurementSketches(); err != nil {
 		return err
 	}
 
 	// Mark opened.
-	i.opened = true
-	i.logger.Info(fmt.Sprintf("index opened with %d partitions", partitionN))
+	index.opened = true
+	index.logger.Info(fmt.Sprintf("index opened with %d partitions", partitionN))
 	return nil
 }
 
-func (i *Index) cleanUpFail(err *error) {
+func (index *Index) cleanUpFail(err *error) {
 	if nil != *err {
-		i.close()
+		index.close()
 	}
 }
 
 // Compact requests a compaction of partitions.
-func (i *Index) Compact() {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	for _, p := range i.partitions {
+func (index *Index) Compact() {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	for _, p := range index.partitions {
 		p.Compact()
 	}
 }
 
-func (i *Index) EnableCompactions() {
-	for _, p := range i.partitions {
+func (index *Index) EnableCompactions() {
+	for _, p := range index.partitions {
 		p.EnableCompactions()
 	}
 }
 
-func (i *Index) DisableCompactions() {
-	for _, p := range i.partitions {
+func (index *Index) DisableCompactions() {
+	for _, p := range index.partitions {
 		p.DisableCompactions()
 	}
 }
 
 // Wait blocks until all outstanding compactions have completed.
-func (i *Index) Wait() {
-	for _, p := range i.partitions {
+func (index *Index) Wait() {
+	for _, p := range index.partitions {
 		p.Wait()
 	}
 }
 
 // Close closes the index.
-func (i *Index) Close() error {
+func (index *Index) Close() error {
 	// Lock index and close partitions.
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	return i.close()
+	index.mu.Lock()
+	defer index.mu.Unlock()
+	return index.close()
 }
 
 // close closes the index without locking
-func (i *Index) close() (rErr error) {
-	for _, p := range i.partitions {
+func (index *Index) close() (rErr error) {
+	for _, p := range index.partitions {
 		if (p != nil) && p.IsOpen() {
 			if pErr := p.Close(); pErr != nil {
-				i.logger.Warn("Failed to clean up partition", zap.String("path", p.Path()))
+				index.logger.Warn("Failed to clean up partition", zap.String("path", p.Path()))
 				if rErr == nil {
 					rErr = pErr
 				}
@@ -361,46 +361,46 @@ func (i *Index) close() (rErr error) {
 		}
 	}
 	// Mark index as closed.
-	i.opened = false
+	index.opened = false
 	return rErr
 }
 
 // Path returns the path the index was opened with.
-func (i *Index) Path() string { return i.path }
+func (index *Index) Path() string { return index.path }
 
 // PartitionAt returns the partition by index.
-func (i *Index) PartitionAt(index int) *Partition {
-	return i.partitions[index]
+func (index *Index) PartitionAt(a int) *Partition {
+	return index.partitions[a]
 }
 
 // partition returns the appropriate Partition for a provided series key.
-func (i *Index) partition(key []byte) *Partition {
-	return i.partitions[int(xxhash.Sum64(key)&(i.PartitionN-1))]
+func (index *Index) partition(key []byte) *Partition {
+	return index.partitions[int(xxhash.Sum64(key)&(index.PartitionN-1))]
 }
 
 // partitionIdx returns the index of the partition that key belongs in.
-func (i *Index) partitionIdx(key []byte) int {
-	return int(xxhash.Sum64(key) & (i.PartitionN - 1))
+func (index *Index) partitionIdx(key []byte) int {
+	return int(xxhash.Sum64(key) & (index.PartitionN - 1))
 }
 
 // availableThreads returns the minimum of GOMAXPROCS and the number of
 // partitions in the Index.
-func (i *Index) availableThreads() int {
+func (index *Index) availableThreads() int {
 	n := runtime.GOMAXPROCS(0)
-	if len(i.partitions) < n {
-		return len(i.partitions)
+	if len(index.partitions) < n {
+		return len(index.partitions)
 	}
 	return n
 }
 
 // updateMeasurementSketches rebuilds the cached measurement sketches.
-func (i *Index) updateMeasurementSketches() error {
-	for j := 0; j < int(i.PartitionN); j++ {
-		if s, t, err := i.partitions[j].MeasurementsSketches(); err != nil {
+func (index *Index) updateMeasurementSketches() error {
+	for j := 0; j < int(index.PartitionN); j++ {
+		if s, t, err := index.partitions[j].MeasurementsSketches(); err != nil {
 			return err
-		} else if err := i.mSketch.Merge(s); err != nil {
+		} else if err := index.mSketch.Merge(s); err != nil {
 			return err
-		} else if err := i.mTSketch.Merge(t); err != nil {
+		} else if err := index.mTSketch.Merge(t); err != nil {
 			return err
 		}
 	}
@@ -408,13 +408,13 @@ func (i *Index) updateMeasurementSketches() error {
 }
 
 // updateSeriesSketches rebuilds the cached series sketches.
-func (i *Index) updateSeriesSketches() error {
-	for j := 0; j < int(i.PartitionN); j++ {
-		if s, t, err := i.partitions[j].SeriesSketches(); err != nil {
+func (index *Index) updateSeriesSketches() error {
+	for j := 0; j < int(index.PartitionN); j++ {
+		if s, t, err := index.partitions[j].SeriesSketches(); err != nil {
 			return err
-		} else if err := i.sSketch.Merge(s); err != nil {
+		} else if err := index.sSketch.Merge(s); err != nil {
 			return err
-		} else if err := i.sTSketch.Merge(t); err != nil {
+		} else if err := index.sTSketch.Merge(t); err != nil {
 			return err
 		}
 	}
@@ -422,18 +422,18 @@ func (i *Index) updateSeriesSketches() error {
 }
 
 // SetFieldSet sets a shared field set from the engine.
-func (i *Index) SetFieldSet(fs *tsdb.MeasurementFieldSet) {
-	for _, p := range i.partitions {
+func (index *Index) SetFieldSet(fs *tsdb.MeasurementFieldSet) {
+	for _, p := range index.partitions {
 		p.SetFieldSet(fs)
 	}
 }
 
 // FieldSet returns the assigned fieldset.
-func (i *Index) FieldSet() *tsdb.MeasurementFieldSet {
-	if len(i.partitions) == 0 {
+func (index *Index) FieldSet() *tsdb.MeasurementFieldSet {
+	if len(index.partitions) == 0 {
 		return nil
 	}
-	return i.partitions[0].FieldSet()
+	return index.partitions[0].FieldSet()
 }
 
 // ForEachMeasurementName iterates over all measurement names in the index,
@@ -441,8 +441,8 @@ func (i *Index) FieldSet() *tsdb.MeasurementFieldSet {
 //
 // ForEachMeasurementName does not call fn on each partition concurrently so the
 // call may provide a non-goroutine safe fn.
-func (i *Index) ForEachMeasurementName(fn func(name []byte) error) error {
-	itr, err := i.MeasurementIterator()
+func (index *Index) ForEachMeasurementName(fn func(name []byte) error) error {
+	itr, err := index.MeasurementIterator()
 	if err != nil {
 		return err
 	} else if itr == nil {
@@ -467,12 +467,12 @@ func (i *Index) ForEachMeasurementName(fn func(name []byte) error) error {
 }
 
 // MeasurementExists returns true if a measurement exists.
-func (i *Index) MeasurementExists(name []byte) (bool, error) {
-	n := i.availableThreads()
+func (index *Index) MeasurementExists(name []byte) (bool, error) {
+	n := index.availableThreads()
 
 	// Store errors
 	var found uint32 // Use this to signal we found the measurement.
-	errC := make(chan error, i.PartitionN)
+	errC := make(chan error, index.PartitionN)
 
 	// Check each partition for the measurement concurrently.
 	var pidx uint32 // Index of maximum Partition being worked on.
@@ -480,7 +480,7 @@ func (i *Index) MeasurementExists(name []byte) (bool, error) {
 		go func() {
 			for {
 				idx := int(atomic.AddUint32(&pidx, 1) - 1) // Get next partition to check
-				if idx >= len(i.partitions) {
+				if idx >= len(index.partitions) {
 					return // No more work.
 				}
 
@@ -491,7 +491,7 @@ func (i *Index) MeasurementExists(name []byte) (bool, error) {
 					continue
 				}
 
-				b, err := i.partitions[idx].MeasurementExists(name)
+				b, err := index.partitions[idx].MeasurementExists(name)
 				if b {
 					atomic.StoreUint32(&found, 1)
 				}
@@ -512,8 +512,8 @@ func (i *Index) MeasurementExists(name []byte) (bool, error) {
 }
 
 // MeasurementHasSeries returns true if a measurement has non-tombstoned series.
-func (i *Index) MeasurementHasSeries(name []byte) (bool, error) {
-	for _, p := range i.partitions {
+func (index *Index) MeasurementHasSeries(name []byte) (bool, error) {
+	for _, p := range index.partitions {
 		if v, err := p.MeasurementHasSeries(name); err != nil {
 			return false, err
 		} else if v {
@@ -528,19 +528,19 @@ func (i *Index) MeasurementHasSeries(name []byte) (bool, error) {
 //
 // fn is a function that works on partition idx and calls into some method on
 // the partition that returns some ordered values.
-func (i *Index) fetchByteValues(fn func(idx int) ([][]byte, error)) ([][]byte, error) {
-	n := i.availableThreads()
+func (index *Index) fetchByteValues(fn func(idx int) ([][]byte, error)) ([][]byte, error) {
+	n := index.availableThreads()
 
 	// Store results.
-	names := make([][][]byte, i.PartitionN)
-	errC := make(chan error, i.PartitionN)
+	names := make([][][]byte, index.PartitionN)
+	errC := make(chan error, index.PartitionN)
 
 	var pidx uint32 // Index of maximum Partition being worked on.
 	for k := 0; k < n; k++ {
 		go func() {
 			for {
 				idx := int(atomic.AddUint32(&pidx, 1) - 1) // Get next partition to work on.
-				if idx >= len(i.partitions) {
+				if idx >= len(index.partitions) {
 					return // No more work.
 				}
 
@@ -566,9 +566,9 @@ func (i *Index) fetchByteValues(fn func(idx int) ([][]byte, error)) ([][]byte, e
 }
 
 // MeasurementIterator returns an iterator over all measurements.
-func (i *Index) MeasurementIterator() (tsdb.MeasurementIterator, error) {
-	itrs := make([]tsdb.MeasurementIterator, 0, len(i.partitions))
-	for _, p := range i.partitions {
+func (index *Index) MeasurementIterator() (tsdb.MeasurementIterator, error) {
+	itrs := make([]tsdb.MeasurementIterator, 0, len(index.partitions))
+	for _, p := range index.partitions {
 		itr, err := p.MeasurementIterator()
 		if err != nil {
 			tsdb.MeasurementIterators(itrs).Close()
@@ -581,9 +581,9 @@ func (i *Index) MeasurementIterator() (tsdb.MeasurementIterator, error) {
 }
 
 // MeasurementSeriesIDIterator returns an iterator over all series in a measurement.
-func (i *Index) MeasurementSeriesIDIterator(name []byte) (tsdb.SeriesIDIterator, error) {
-	itrs := make([]tsdb.SeriesIDIterator, 0, len(i.partitions))
-	for _, p := range i.partitions {
+func (index *Index) MeasurementSeriesIDIterator(name []byte) (tsdb.SeriesIDIterator, error) {
+	itrs := make([]tsdb.SeriesIDIterator, 0, len(index.partitions))
+	for _, p := range index.partitions {
 		itr, err := p.MeasurementSeriesIDIterator(name)
 		if err != nil {
 			tsdb.SeriesIDIterators(itrs).Close()
@@ -596,29 +596,29 @@ func (i *Index) MeasurementSeriesIDIterator(name []byte) (tsdb.SeriesIDIterator,
 }
 
 // MeasurementNamesByRegex returns measurement names for the provided regex.
-func (i *Index) MeasurementNamesByRegex(re *regexp.Regexp) ([][]byte, error) {
-	return i.fetchByteValues(func(idx int) ([][]byte, error) {
-		return i.partitions[idx].MeasurementNamesByRegex(re)
+func (index *Index) MeasurementNamesByRegex(re *regexp.Regexp) ([][]byte, error) {
+	return index.fetchByteValues(func(idx int) ([][]byte, error) {
+		return index.partitions[idx].MeasurementNamesByRegex(re)
 	})
 }
 
 // DropMeasurement deletes a measurement from the index. It returns the first
 // error encountered, if any.
-func (i *Index) DropMeasurement(name []byte) error {
-	n := i.availableThreads()
+func (index *Index) DropMeasurement(name []byte) error {
+	n := index.availableThreads()
 
 	// Store results.
-	errC := make(chan error, i.PartitionN)
+	errC := make(chan error, index.PartitionN)
 
 	var pidx uint32 // Index of maximum Partition being worked on.
 	for k := 0; k < n; k++ {
 		go func() {
 			for {
 				idx := int(atomic.AddUint32(&pidx, 1) - 1) // Get next partition to work on.
-				if idx >= len(i.partitions) {
+				if idx >= len(index.partitions) {
 					return // No more work.
 				}
-				errC <- i.partitions[idx].DropMeasurement(name)
+				errC <- index.partitions[idx].DropMeasurement(name)
 			}
 		}()
 	}
@@ -631,11 +631,11 @@ func (i *Index) DropMeasurement(name []byte) error {
 	}
 
 	// Update sketches under lock.
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	index.mu.Lock()
+	defer index.mu.Unlock()
 
-	i.mTSketch.Add(name)
-	if err := i.updateSeriesSketches(); err != nil {
+	index.mTSketch.Add(name)
+	if err := index.updateSeriesSketches(); err != nil {
 		return err
 	}
 
@@ -643,7 +643,7 @@ func (i *Index) DropMeasurement(name []byte) error {
 }
 
 // CreateSeriesListIfNotExists creates a list of series if they doesn't exist in bulk.
-func (i *Index) CreateSeriesListIfNotExists(keys [][]byte, names [][]byte, tagsSlice []models.Tags) error {
+func (index *Index) CreateSeriesListIfNotExists(keys [][]byte, names [][]byte, tagsSlice []models.Tags) error {
 	// All slices must be of equal length.
 	if len(names) != len(tagsSlice) {
 		return errors.New("names/tags length mismatch in index")
@@ -651,32 +651,32 @@ func (i *Index) CreateSeriesListIfNotExists(keys [][]byte, names [][]byte, tagsS
 
 	// We need to move different series into collections for each partition
 	// to process.
-	pNames := make([][][]byte, i.PartitionN)
-	pTags := make([][]models.Tags, i.PartitionN)
+	pNames := make([][][]byte, index.PartitionN)
+	pTags := make([][]models.Tags, index.PartitionN)
 
 	// Determine partition for series using each series key.
 	for ki, key := range keys {
-		pidx := i.partitionIdx(key)
+		pidx := index.partitionIdx(key)
 		pNames[pidx] = append(pNames[pidx], names[ki])
 		pTags[pidx] = append(pTags[pidx], tagsSlice[ki])
 	}
 
 	// Process each subset of series on each partition.
-	n := i.availableThreads()
+	n := index.availableThreads()
 
 	// Store errors.
-	errC := make(chan error, i.PartitionN)
+	errC := make(chan error, index.PartitionN)
 
 	var pidx uint32 // Index of maximum Partition being worked on.
 	for k := 0; k < n; k++ {
 		go func() {
 			for {
 				idx := int(atomic.AddUint32(&pidx, 1) - 1) // Get next partition to work on.
-				if idx >= len(i.partitions) {
+				if idx >= len(index.partitions) {
 					return // No more work.
 				}
 
-				ids, err := i.partitions[idx].createSeriesListIfNotExists(pNames[idx], pTags[idx])
+				ids, err := index.partitions[idx].createSeriesListIfNotExists(pNames[idx], pTags[idx])
 
 				var updateCache bool
 				for _, id := range ids {
@@ -692,7 +692,7 @@ func (i *Index) CreateSeriesListIfNotExists(keys [][]byte, names [][]byte, tagsS
 				}
 
 				// Some cached bitset results may need to be updated.
-				i.tagValueCache.RLock()
+				index.tagValueCache.RLock()
 				for j, id := range ids {
 					if id == 0 {
 						continue
@@ -700,7 +700,7 @@ func (i *Index) CreateSeriesListIfNotExists(keys [][]byte, names [][]byte, tagsS
 
 					name := pNames[idx][j]
 					tags := pTags[idx][j]
-					if i.tagValueCache.measurementContainsSets(name) {
+					if index.tagValueCache.measurementContainsSets(name) {
 						for _, pair := range tags {
 							// TODO(edd): It's not clear to me yet whether it will be better to take a lock
 							// on every series id set, or whether to gather them all up under the cache rlock
@@ -716,11 +716,11 @@ func (i *Index) CreateSeriesListIfNotExists(keys [][]byte, names [][]byte, tagsS
 							// and then keep it locked until we're done with all the ids.
 							//
 							// Note: this will only add `id` to the set if it exists.
-							i.tagValueCache.addToSet(name, pair.Key, pair.Value, id) // Takes a lock on the series id set
+							index.tagValueCache.addToSet(name, pair.Key, pair.Value, id) // Takes a lock on the series id set
 						}
 					}
 				}
-				i.tagValueCache.RUnlock()
+				index.tagValueCache.RUnlock()
 
 				errC <- err
 			}
@@ -735,30 +735,30 @@ func (i *Index) CreateSeriesListIfNotExists(keys [][]byte, names [][]byte, tagsS
 	}
 
 	// Update sketches under lock.
-	i.mu.Lock()
-	defer i.mu.Unlock()
+	index.mu.Lock()
+	defer index.mu.Unlock()
 
 	for _, key := range keys {
-		i.sSketch.Add(key)
+		index.sSketch.Add(key)
 	}
 	for _, name := range names {
-		i.mSketch.Add(name)
+		index.mSketch.Add(name)
 	}
 
 	return nil
 }
 
 // CreateSeriesIfNotExists creates a series if it doesn't exist or is deleted.
-func (i *Index) CreateSeriesIfNotExists(key, name []byte, tags models.Tags) error {
-	ids, err := i.partition(key).createSeriesListIfNotExists([][]byte{name}, []models.Tags{tags})
+func (index *Index) CreateSeriesIfNotExists(key, name []byte, tags models.Tags) error {
+	ids, err := index.partition(key).createSeriesListIfNotExists([][]byte{name}, []models.Tags{tags})
 	if err != nil {
 		return err
 	}
 
-	i.mu.Lock()
-	i.sSketch.Add(key)
-	i.mSketch.Add(name)
-	i.mu.Unlock()
+	index.mu.Lock()
+	index.sSketch.Add(key)
+	index.mSketch.Add(name)
+	index.mu.Unlock()
 
 	if ids[0] == 0 {
 		return nil // No new series, nothing further to update.
@@ -766,8 +766,8 @@ func (i *Index) CreateSeriesIfNotExists(key, name []byte, tags models.Tags) erro
 
 	// If there are cached sets for any of the tag pairs, they will need to be
 	// updated with the series id.
-	i.tagValueCache.RLock()
-	if i.tagValueCache.measurementContainsSets(name) {
+	index.tagValueCache.RLock()
+	if index.tagValueCache.measurementContainsSets(name) {
 		for _, pair := range tags {
 			// TODO(edd): It's not clear to me yet whether it will be better to take a lock
 			// on every series id set, or whether to gather them all up under the cache rlock
@@ -780,25 +780,25 @@ func (i *Index) CreateSeriesIfNotExists(key, name []byte, tags models.Tags) erro
 			// Need to think on it, but I think taking a lock on each series id set is the way to go.
 			//
 			// Note this will only add `id` to the set if it exists.
-			i.tagValueCache.addToSet(name, pair.Key, pair.Value, ids[0]) // Takes a lock on the series id set
+			index.tagValueCache.addToSet(name, pair.Key, pair.Value, ids[0]) // Takes a lock on the series id set
 		}
 	}
-	i.tagValueCache.RUnlock()
+	index.tagValueCache.RUnlock()
 	return nil
 }
 
 // DropSeries drops the provided series from the index.  If cascade is true
 // and this is the last series to the measurement, the measurement will also be dropped.
-func (i *Index) DropSeries(seriesID uint64, key []byte, cascade bool) error {
+func (index *Index) DropSeries(seriesID uint64, key []byte, cascade bool) error {
 	// Remove from partition.
-	if err := i.partition(key).DropSeries(seriesID); err != nil {
+	if err := index.partition(key).DropSeries(seriesID); err != nil {
 		return err
 	}
 
 	// Add sketch tombstone.
-	i.mu.Lock()
-	i.sTSketch.Add(key)
-	i.mu.Unlock()
+	index.mu.Lock()
+	index.sTSketch.Add(key)
+	index.mu.Unlock()
 
 	if !cascade {
 		return nil
@@ -809,23 +809,23 @@ func (i *Index) DropSeries(seriesID uint64, key []byte, cascade bool) error {
 
 	// If there are cached sets for any of the tag pairs, they will need to be
 	// updated with the series id.
-	i.tagValueCache.RLock()
-	if i.tagValueCache.measurementContainsSets(name) {
+	index.tagValueCache.RLock()
+	if index.tagValueCache.measurementContainsSets(name) {
 		for _, pair := range tags {
-			i.tagValueCache.delete(name, pair.Key, pair.Value, seriesID) // Takes a lock on the series id set
+			index.tagValueCache.delete(name, pair.Key, pair.Value, seriesID) // Takes a lock on the series id set
 		}
 	}
-	i.tagValueCache.RUnlock()
+	index.tagValueCache.RUnlock()
 
 	// Check if that was the last series for the measurement in the entire index.
-	if ok, err := i.MeasurementHasSeries(name); err != nil {
+	if ok, err := index.MeasurementHasSeries(name); err != nil {
 		return err
 	} else if ok {
 		return nil
 	}
 
 	// If no more series exist in the measurement then delete the measurement.
-	if err := i.DropMeasurement(name); err != nil {
+	if err := index.DropMeasurement(name); err != nil {
 		return err
 	}
 	return nil
@@ -833,48 +833,48 @@ func (i *Index) DropSeries(seriesID uint64, key []byte, cascade bool) error {
 
 // DropMeasurementIfSeriesNotExist drops a measurement only if there are no more
 // series for the measurement.
-func (i *Index) DropMeasurementIfSeriesNotExist(name []byte) (bool, error) {
+func (index *Index) DropMeasurementIfSeriesNotExist(name []byte) (bool, error) {
 	// Check if that was the last series for the measurement in the entire index.
-	if ok, err := i.MeasurementHasSeries(name); err != nil {
+	if ok, err := index.MeasurementHasSeries(name); err != nil {
 		return false, err
 	} else if ok {
 		return false, nil
 	}
 
 	// If no more series exist in the measurement then delete the measurement.
-	return true, i.DropMeasurement(name)
+	return true, index.DropMeasurement(name)
 }
 
 // MeasurementsSketches returns the two measurement sketches for the index.
-func (i *Index) MeasurementsSketches() (estimator.Sketch, estimator.Sketch, error) {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
-	return i.mSketch.Clone(), i.mTSketch.Clone(), nil
+func (index *Index) MeasurementsSketches() (estimator.Sketch, estimator.Sketch, error) {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	return index.mSketch.Clone(), index.mTSketch.Clone(), nil
 }
 
 // SeriesSketches returns the two series sketches for the index.
-func (i *Index) SeriesSketches() (estimator.Sketch, estimator.Sketch, error) {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
-	return i.sSketch.Clone(), i.sTSketch.Clone(), nil
+func (index *Index) SeriesSketches() (estimator.Sketch, estimator.Sketch, error) {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
+	return index.sSketch.Clone(), index.sTSketch.Clone(), nil
 }
 
 // Since indexes are not shared across shards, the count returned by SeriesN
 // cannot be combined with other shard's results. If you need to count series
 // across indexes then use either the database-wide series file, or merge the
 // index-level bitsets or sketches.
-func (i *Index) SeriesN() int64 {
-	return int64(i.SeriesIDSet().Cardinality())
+func (index *Index) SeriesN() int64 {
+	return int64(index.SeriesIDSet().Cardinality())
 }
 
 // HasTagKey returns true if tag key exists. It returns the first error
 // encountered if any.
-func (i *Index) HasTagKey(name, key []byte) (bool, error) {
-	n := i.availableThreads()
+func (index *Index) HasTagKey(name, key []byte) (bool, error) {
+	n := index.availableThreads()
 
 	// Store errors
 	var found uint32 // Use this to signal we found the tag key.
-	errC := make(chan error, i.PartitionN)
+	errC := make(chan error, index.PartitionN)
 
 	// Check each partition for the tag key concurrently.
 	var pidx uint32 // Index of maximum Partition being worked on.
@@ -882,7 +882,7 @@ func (i *Index) HasTagKey(name, key []byte) (bool, error) {
 		go func() {
 			for {
 				idx := int(atomic.AddUint32(&pidx, 1) - 1) // Get next partition to check
-				if idx >= len(i.partitions) {
+				if idx >= len(index.partitions) {
 					return // No more work.
 				}
 
@@ -893,7 +893,7 @@ func (i *Index) HasTagKey(name, key []byte) (bool, error) {
 					continue
 				}
 
-				b, err := i.partitions[idx].HasTagKey(name, key)
+				b, err := index.partitions[idx].HasTagKey(name, key)
 				if b {
 					atomic.StoreUint32(&found, 1)
 				}
@@ -914,12 +914,12 @@ func (i *Index) HasTagKey(name, key []byte) (bool, error) {
 }
 
 // HasTagValue returns true if tag value exists.
-func (i *Index) HasTagValue(name, key, value []byte) (bool, error) {
-	n := i.availableThreads()
+func (index *Index) HasTagValue(name, key, value []byte) (bool, error) {
+	n := index.availableThreads()
 
 	// Store errors
 	var found uint32 // Use this to signal we found the tag key.
-	errC := make(chan error, i.PartitionN)
+	errC := make(chan error, index.PartitionN)
 
 	// Check each partition for the tag key concurrently.
 	var pidx uint32 // Index of maximum Partition being worked on.
@@ -927,7 +927,7 @@ func (i *Index) HasTagValue(name, key, value []byte) (bool, error) {
 		go func() {
 			for {
 				idx := int(atomic.AddUint32(&pidx, 1) - 1) // Get next partition to check
-				if idx >= len(i.partitions) {
+				if idx >= len(index.partitions) {
 					return // No more work.
 				}
 
@@ -938,7 +938,7 @@ func (i *Index) HasTagValue(name, key, value []byte) (bool, error) {
 					continue
 				}
 
-				b, err := i.partitions[idx].HasTagValue(name, key, value)
+				b, err := index.partitions[idx].HasTagValue(name, key, value)
 				if b {
 					atomic.StoreUint32(&found, 1)
 				}
@@ -959,9 +959,9 @@ func (i *Index) HasTagValue(name, key, value []byte) (bool, error) {
 }
 
 // TagKeyIterator returns an iterator for all keys across a single measurement.
-func (i *Index) TagKeyIterator(name []byte) (tsdb.TagKeyIterator, error) {
-	a := make([]tsdb.TagKeyIterator, 0, len(i.partitions))
-	for _, p := range i.partitions {
+func (index *Index) TagKeyIterator(name []byte) (tsdb.TagKeyIterator, error) {
+	a := make([]tsdb.TagKeyIterator, 0, len(index.partitions))
+	for _, p := range index.partitions {
 		itr := p.TagKeyIterator(name)
 		if itr != nil {
 			a = append(a, itr)
@@ -971,9 +971,9 @@ func (i *Index) TagKeyIterator(name []byte) (tsdb.TagKeyIterator, error) {
 }
 
 // TagValueIterator returns an iterator for all values across a single key.
-func (i *Index) TagValueIterator(name, key []byte) (tsdb.TagValueIterator, error) {
-	a := make([]tsdb.TagValueIterator, 0, len(i.partitions))
-	for _, p := range i.partitions {
+func (index *Index) TagValueIterator(name, key []byte) (tsdb.TagValueIterator, error) {
+	a := make([]tsdb.TagValueIterator, 0, len(index.partitions))
+	for _, p := range index.partitions {
 		itr := p.TagValueIterator(name, key)
 		if itr != nil {
 			a = append(a, itr)
@@ -983,9 +983,9 @@ func (i *Index) TagValueIterator(name, key []byte) (tsdb.TagValueIterator, error
 }
 
 // TagKeySeriesIDIterator returns a series iterator for all values across a single key.
-func (i *Index) TagKeySeriesIDIterator(name, key []byte) (tsdb.SeriesIDIterator, error) {
-	a := make([]tsdb.SeriesIDIterator, 0, len(i.partitions))
-	for _, p := range i.partitions {
+func (index *Index) TagKeySeriesIDIterator(name, key []byte) (tsdb.SeriesIDIterator, error) {
+	a := make([]tsdb.SeriesIDIterator, 0, len(index.partitions))
+	for _, p := range index.partitions {
 		itr, err := p.TagKeySeriesIDIterator(name, key)
 		if err != nil {
 			return nil, err
@@ -997,17 +997,17 @@ func (i *Index) TagKeySeriesIDIterator(name, key []byte) (tsdb.SeriesIDIterator,
 }
 
 // TagValueSeriesIDIterator returns a series iterator for a single tag value.
-func (i *Index) TagValueSeriesIDIterator(name, key, value []byte) (tsdb.SeriesIDIterator, error) {
+func (index *Index) TagValueSeriesIDIterator(name, key, value []byte) (tsdb.SeriesIDIterator, error) {
 	// Check series ID set cache...
-	if i.tagValueCacheSize > 0 {
-		if ss := i.tagValueCache.Get(name, key, value); ss != nil {
+	if index.tagValueCacheSize > 0 {
+		if ss := index.tagValueCache.Get(name, key, value); ss != nil {
 			// Return a clone because the set is mutable.
 			return tsdb.NewSeriesIDSetIterator(ss.Clone()), nil
 		}
 	}
 
-	a := make([]tsdb.SeriesIDIterator, 0, len(i.partitions))
-	for _, p := range i.partitions {
+	a := make([]tsdb.SeriesIDIterator, 0, len(index.partitions))
+	for _, p := range index.partitions {
 		itr, err := p.TagValueSeriesIDIterator(name, key, value)
 		if err != nil {
 			tsdb.SeriesIDIterators(a).Close()
@@ -1018,38 +1018,38 @@ func (i *Index) TagValueSeriesIDIterator(name, key, value []byte) (tsdb.SeriesID
 	}
 
 	itr := tsdb.MergeSeriesIDIterators(a...)
-	if i.tagValueCacheSize == 0 {
+	if index.tagValueCacheSize == 0 {
 		return itr, nil
 	}
 
 	// Check if the iterator contains only series id sets. Cache them...
 	if ssitr, ok := itr.(tsdb.SeriesIDSetIterator); ok {
 		ss := ssitr.SeriesIDSet()
-		i.tagValueCache.Put(name, key, value, ss)
+		index.tagValueCache.Put(name, key, value, ss)
 	}
 	return itr, nil
 }
 
 // MeasurementTagKeysByExpr extracts the tag keys wanted by the expression.
-func (i *Index) MeasurementTagKeysByExpr(name []byte, expr influxql.Expr) (map[string]struct{}, error) {
-	n := i.availableThreads()
+func (index *Index) MeasurementTagKeysByExpr(name []byte, expr influxql.Expr) (map[string]struct{}, error) {
+	n := index.availableThreads()
 
 	// Store results.
-	keys := make([]map[string]struct{}, i.PartitionN)
-	errC := make(chan error, i.PartitionN)
+	keys := make([]map[string]struct{}, index.PartitionN)
+	errC := make(chan error, index.PartitionN)
 
 	var pidx uint32 // Index of maximum Partition being worked on.
 	for k := 0; k < n; k++ {
 		go func() {
 			for {
 				idx := int(atomic.AddUint32(&pidx, 1) - 1) // Get next partition to work on.
-				if idx >= len(i.partitions) {
+				if idx >= len(index.partitions) {
 					return // No more work.
 				}
 
 				// This is safe since there are no readers on keys until all
 				// the writers are done.
-				tagKeys, err := i.partitions[idx].MeasurementTagKeysByExpr(name, expr)
+				tagKeys, err := index.partitions[idx].MeasurementTagKeysByExpr(name, expr)
 				keys[idx] = tagKeys
 				errC <- err
 			}
@@ -1065,7 +1065,7 @@ func (i *Index) MeasurementTagKeysByExpr(name []byte, expr influxql.Expr) (map[s
 
 	// Merge into single map.
 	result := keys[0]
-	for k := 1; k < len(i.partitions); k++ {
+	for k := 1; k < len(index.partitions); k++ {
 		for k := range keys[k] {
 			result[k] = struct{}{}
 		}
@@ -1074,17 +1074,17 @@ func (i *Index) MeasurementTagKeysByExpr(name []byte, expr influxql.Expr) (map[s
 }
 
 // DiskSizeBytes returns the size of the index on disk.
-func (i *Index) DiskSizeBytes() int64 {
-	fs, err := i.RetainFileSet()
+func (index *Index) DiskSizeBytes() int64 {
+	fs, err := index.RetainFileSet()
 	if err != nil {
-		i.logger.Warn("Index is closing down")
+		index.logger.Warn("Index is closing down")
 		return 0
 	}
 	defer fs.Release()
 
 	var manifestSize int64
 	// Get MANIFEST sizes from each partition.
-	for _, p := range i.partitions {
+	for _, p := range index.partitions {
 		manifestSize += p.manifestSize
 	}
 	return fs.Size() + manifestSize
@@ -1093,18 +1093,18 @@ func (i *Index) DiskSizeBytes() int64 {
 // TagKeyCardinality always returns zero.
 // It is not possible to determine cardinality of tags across index files, and
 // thus it cannot be done across partitions.
-func (i *Index) TagKeyCardinality(name, key []byte) int {
+func (index *Index) TagKeyCardinality(name, key []byte) int {
 	return 0
 }
 
 // RetainFileSet returns the set of all files across all partitions.
 // This is only needed when all files need to be retained for an operation.
-func (i *Index) RetainFileSet() (*FileSet, error) {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
+func (index *Index) RetainFileSet() (*FileSet, error) {
+	index.mu.RLock()
+	defer index.mu.RUnlock()
 
 	fs := NewFileSet(nil)
-	for _, p := range i.partitions {
+	for _, p := range index.partitions {
 		pfs, err := p.RetainFileSet()
 		if err != nil {
 			fs.Close()

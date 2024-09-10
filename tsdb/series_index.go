@@ -32,7 +32,7 @@ const (
 
 var ErrInvalidSeriesIndex = errors.New("invalid series index")
 
-// SeriesIndex represents an index of key-to-id & id-to-offset mappings.
+// represent an index of key-to-id & id-to-offset mappings.
 type SeriesIndex struct {
 	path string
 

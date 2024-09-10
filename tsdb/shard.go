@@ -172,37 +172,37 @@ func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt Eng
 }
 
 // WithLogger sets the logger on the shard. It must be called before Open.
-func (s *Shard) WithLogger(log *zap.Logger) {
-	s.baseLogger = log
-	engine, err := s.Engine()
+func (shard *Shard) WithLogger(log *zap.Logger) {
+	shard.baseLogger = log
+	engine, err := shard.Engine()
 	if err == nil {
-		engine.WithLogger(s.baseLogger)
-		s.index.WithLogger(s.baseLogger)
+		engine.WithLogger(shard.baseLogger)
+		shard.index.WithLogger(shard.baseLogger)
 	}
-	s.logger = s.baseLogger.With(zap.String("service", "shard"))
+	shard.logger = shard.baseLogger.With(zap.String("service", "shard"))
 }
 
 // SetEnabled enables the shard for queries and write.  When disabled, all
 // writes and queries return an error and compactions are stopped for the shard.
-func (s *Shard) SetEnabled(enabled bool) {
-	s.mu.Lock()
-	s.setEnabledNoLock(enabled)
-	s.mu.Unlock()
+func (shard *Shard) SetEnabled(enabled bool) {
+	shard.mu.Lock()
+	shard.setEnabledNoLock(enabled)
+	shard.mu.Unlock()
 }
 
 // ! setEnabledNoLock performs actual work of SetEnabled. Must hold s.mu before calling.
-func (s *Shard) setEnabledNoLock(enabled bool) {
+func (shard *Shard) setEnabledNoLock(enabled bool) {
 	// Prevent writes and queries
-	s.enabled = enabled
-	if s._engine != nil && !s.CompactionDisabled {
+	shard.enabled = enabled
+	if shard._engine != nil && !shard.CompactionDisabled {
 		// Disable background compactions and snapshotting
-		s._engine.SetEnabled(enabled)
+		shard._engine.SetEnabled(enabled)
 	}
 }
 
 // ScheduleFullCompaction forces a full compaction to be schedule on the shard.
-func (s *Shard) ScheduleFullCompaction() error {
-	engine, err := s.Engine()
+func (shard *Shard) ScheduleFullCompaction() error {
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
@@ -210,18 +210,18 @@ func (s *Shard) ScheduleFullCompaction() error {
 }
 
 // ID returns the shards ID.
-func (s *Shard) ID() uint64 {
-	return s.id
+func (shard *Shard) ID() uint64 {
+	return shard.id
 }
 
 // Database returns the database of the shard.
-func (s *Shard) Database() string {
-	return s.database
+func (shard *Shard) Database() string {
+	return shard.database
 }
 
 // RetentionPolicy returns the retention policy of the shard.
-func (s *Shard) RetentionPolicy() string {
-	return s.retentionPolicy
+func (shard *Shard) RetentionPolicy() string {
+	return shard.retentionPolicy
 }
 
 var globalShardMetrics = newAllShardMetrics()
@@ -361,15 +361,15 @@ func (t *ticker) Stop() {
 }
 
 // Path returns the path set on the shard when it was created.
-func (s *Shard) Path() string { return s.path }
+func (shard *Shard) Path() string { return shard.path }
 
-// Open initializes and opens the shard's store.
-func (s *Shard) Open(ctx context.Context) error {
-	s.mu.Lock()
-	closeWaitNeeded, err := s.openNoLock(ctx)
-	s.mu.Unlock()
+// initializes and opens the shard's store.
+func (shard *Shard) Open(ctx context.Context) error {
+	shard.mu.Lock()
+	closeWaitNeeded, err := shard.openNoLock(ctx)
+	shard.mu.Unlock()
 	if closeWaitNeeded {
-		werr := s.closeWait()
+		werr := shard.closeWait()
 		// We want the first error we get returned to the caller
 		if err == nil {
 			err = werr
@@ -381,22 +381,22 @@ func (s *Shard) Open(ctx context.Context) error {
 // openNoLock performs work of Open. Must hold s.mu before calling. The first return
 // value is true if the caller should call closeWait after unlocking s.mu in order
 // to clean up a failed open operation.
-func (s *Shard) openNoLock(ctx context.Context) (bool, error) {
+func (shard *Shard) openNoLock(ctx context.Context) (bool, error) {
 	if err := func() error {
 		// Return if the shard is already open
-		if s._engine != nil {
+		if shard._engine != nil {
 			return nil
 		}
 
 		seriesIDSet := NewSeriesIDSet()
 
 		// Initialize underlying index.
-		ipath := filepath.Join(s.path, "index")
-		idx, err := NewIndex(s.id, s.database, ipath, seriesIDSet, s.sfile, s.options)
+		ipath := filepath.Join(shard.path, "index")
+		idx, err := NewIndex(shard.id, shard.database, ipath, seriesIDSet, shard.sfile, shard.options)
 		if err != nil {
 			return err
 		}
-		idx.WithLogger(s.baseLogger)
+		idx.WithLogger(shard.baseLogger)
 
 		// Check if the index needs to be rebuilt before Open() initializes
 		// its file system layout.
@@ -409,16 +409,16 @@ func (s *Shard) openNoLock(ctx context.Context) (bool, error) {
 		if err := idx.Open(); err != nil {
 			return err
 		}
-		s.index = idx
+		shard.index = idx
 
 		// Initialize underlying engine.
-		e, err := NewEngine(s.id, idx, s.path, s.walPath, s.sfile, s.options)
+		e, err := NewEngine(shard.id, idx, shard.path, shard.walPath, shard.sfile, shard.options)
 		if err != nil {
 			return err
 		}
 
 		// Set log output on the engine.
-		e.WithLogger(s.baseLogger)
+		e.WithLogger(shard.baseLogger)
 
 		// Disable compactions while loading the index
 		e.SetEnabled(false)
@@ -433,10 +433,10 @@ func (s *Shard) openNoLock(ctx context.Context) (bool, error) {
 			}
 		}
 
-		if err := e.LoadMetadataIndex(s.id, s.index); err != nil {
+		if err := e.LoadMetadataIndex(shard.id, shard.index); err != nil {
 			return err
 		}
-		s._engine = e
+		shard._engine = e
 
 		// Set up metric collection
 		metricUpdater := &ticker{
@@ -445,7 +445,7 @@ func (s *Shard) openNoLock(ctx context.Context) (bool, error) {
 
 		// We want a way to turn off the series and disk size metrics if they are suspected to cause issues
 		// This corresponds to the top-level MetricsDisabled argument
-		if !s.options.MetricsDisabled {
+		if !shard.options.MetricsDisabled {
 			metricUpdater.wg.Add(1)
 			go func() {
 				tick := time.NewTicker(DefaultMetricInterval)
@@ -456,12 +456,12 @@ func (s *Shard) openNoLock(ctx context.Context) (bool, error) {
 					case <-tick.C:
 						// Note this takes the engine lock, so we have to be careful not
 						// to close metricUpdater.closing while holding the engine lock
-						e, err := s.Engine()
+						e, err := shard.Engine()
 						if err != nil {
 							continue
 						}
-						s.stats.series.Set(float64(e.SeriesN()))
-						s.stats.diskSize.Set(float64(e.DiskSize()))
+						shard.stats.series.Set(float64(e.SeriesN()))
+						shard.stats.diskSize.Set(float64(e.DiskSize()))
 					case <-metricUpdater.closing:
 						return
 					}
@@ -469,31 +469,31 @@ func (s *Shard) openNoLock(ctx context.Context) (bool, error) {
 			}()
 		}
 
-		s.metricUpdater = metricUpdater
+		shard.metricUpdater = metricUpdater
 
 		return nil
 	}(); err != nil {
-		s.closeNoLock()
-		return true, NewShardError(s.id, err)
+		shard.closeNoLock()
+		return true, NewShardError(shard.id, err)
 	}
 
-	if s.EnableOnOpen {
+	if shard.EnableOnOpen {
 		// enable writes, queries and compactions
-		s.setEnabledNoLock(true)
+		shard.setEnabledNoLock(true)
 	}
 
 	return false, nil
 }
 
 // Close shuts down the shard's store.
-func (s *Shard) Close() error {
+func (shard *Shard) Close() error {
 	err := func() error {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.closeNoLock()
+		shard.mu.Lock()
+		defer shard.mu.Unlock()
+		return shard.closeNoLock()
 	}()
 	// make sure not to hold a lock while waiting for close to finish
-	werr := s.closeWait()
+	werr := shard.closeWait()
 
 	if err != nil {
 		return err
@@ -504,22 +504,22 @@ func (s *Shard) Close() error {
 // closeNoLock closes the shard an removes reference to the shard from associated
 // indexes. The s.mu mutex must be held before calling closeNoLock. closeWait should always
 // be called after calling closeNoLock.
-func (s *Shard) closeNoLock() error {
-	if s._engine == nil {
+func (shard *Shard) closeNoLock() error {
+	if shard._engine == nil {
 		return nil
 	}
 
-	if s.metricUpdater != nil {
-		close(s.metricUpdater.closing)
+	if shard.metricUpdater != nil {
+		close(shard.metricUpdater.closing)
 	}
 
-	err := s._engine.Close()
+	err := shard._engine.Close()
 	if err == nil {
-		s._engine = nil
+		shard._engine = nil
 	}
 
-	if e := s.index.Close(); e == nil {
-		s.index = nil
+	if e := shard.index.Close(); e == nil {
+		shard.index = nil
 	}
 	return err
 }
@@ -529,9 +529,9 @@ func (s *Shard) closeNoLock() error {
 // closeNoLock. closeWait should always be called after calling closeNoLock.
 // Public methods which close the shard should call closeWait after closeNoLock before
 // returning. Must be called without holding shard locks to avoid deadlocking.
-func (s *Shard) closeWait() error {
-	if s.metricUpdater != nil {
-		s.metricUpdater.wg.Wait()
+func (shard *Shard) closeWait() error {
+	if shard.metricUpdater != nil {
+		shard.metricUpdater.wg.Wait()
 	}
 	return nil
 }
@@ -540,30 +540,30 @@ func (s *Shard) closeWait() error {
 //
 // IndexType returns the empty string if it is called before the shard is opened,
 // since it is only that point that the underlying index type is known.
-func (s *Shard) IndexType() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s._engine == nil || s.index == nil { // Shard not open yet.
+func (shard *Shard) IndexType() string {
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	if shard._engine == nil || shard.index == nil { // Shard not open yet.
 		return ""
 	}
-	return s.index.Type()
+	return shard.index.Type()
 }
 
 // ready determines if the Shard is ready for queries or writes.
 // It returns nil if ready, otherwise ErrShardClosed or ErrShardDisabled
-func (s *Shard) ready() error {
+func (shard *Shard) ready() error {
 	var err error
-	if s._engine == nil {
+	if shard._engine == nil {
 		err = ErrEngineClosed
-	} else if !s.enabled {
+	} else if !shard.enabled {
 		err = ErrShardDisabled
 	}
 	return err
 }
 
 // LastModified returns the time when this shard was last modified.
-func (s *Shard) LastModified() time.Time {
-	engine, err := s.Engine()
+func (shard *Shard) LastModified() time.Time {
+	engine, err := shard.Engine()
 	if err != nil {
 		return time.Time{}
 	}
@@ -572,50 +572,50 @@ func (s *Shard) LastModified() time.Time {
 
 // Index returns a reference to the underlying index. It returns an error if
 // the index is nil.
-func (s *Shard) Index() (Index, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if err := s.ready(); err != nil {
+func (shard *Shard) Index() (Index, error) {
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	if err := shard.ready(); err != nil {
 		return nil, err
 	}
-	return s.index, nil
+	return shard.index, nil
 }
 
 // SeriesFile returns a reference the underlying series file. If return an error
 // if the series file is nil.
-func (s *Shard) SeriesFile() (*SeriesFile, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if err := s.ready(); err != nil {
+func (shard *Shard) SeriesFile() (*SeriesFile, error) {
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	if err := shard.ready(); err != nil {
 		return nil, err
 	}
-	return s.sfile, nil
+	return shard.sfile, nil
 }
 
 // IsIdle return true if the shard is not receiving writes and is fully compacted.
-func (s *Shard) IsIdle() (state bool, reason string) {
-	engine, err := s.Engine()
+func (shard *Shard) IsIdle() (state bool, reason string) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return true, ""
 	}
 	return engine.IsIdle()
 }
 
-func (s *Shard) Free() error {
-	engine, err := s.Engine()
+func (shard *Shard) Free() error {
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
 
 	// Disable compactions to stop background goroutines
-	s.SetCompactionsEnabled(false)
+	shard.SetCompactionsEnabled(false)
 
 	return engine.Free()
 }
 
 // SetCompactionsEnabled enables or disable shard background compactions.
-func (s *Shard) SetCompactionsEnabled(enabled bool) {
-	engine, err := s.Engine()
+func (shard *Shard) SetCompactionsEnabled(enabled bool) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return
 	}
@@ -623,15 +623,15 @@ func (s *Shard) SetCompactionsEnabled(enabled bool) {
 }
 
 // DiskSize returns the size on disk of this shard.
-func (s *Shard) DiskSize() (int64, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (shard *Shard) DiskSize() (int64, error) {
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
 	// We don't use engine() because we still want to report the shard's disk
 	// size even if the shard has been disabled.
-	if s._engine == nil {
+	if shard._engine == nil {
 		return 0, ErrEngineClosed
 	}
-	size := s._engine.DiskSize()
+	size := shard._engine.DiskSize()
 	return size, nil
 }
 
@@ -642,24 +642,24 @@ type FieldCreate struct {
 }
 
 // WritePoints will write the raw data points and any new metadata to the index in the shard.
-func (s *Shard) WritePoints(ctx context.Context, points []models.Point) (rErr error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (shard *Shard) WritePoints(ctx context.Context, points []models.Point) (rErr error) {
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
 
-	engine, err := s.engineNoLock()
+	engine, err := shard.engineNoLock()
 	if err != nil {
 		return err
 	}
 
 	var writeError error
-	s.stats.writes.Observe(float64(len(points)))
+	shard.stats.writes.Observe(float64(len(points)))
 	defer func() {
 		if rErr != nil {
-			s.stats.writesErr.Observe(float64(len(points)))
+			shard.stats.writesErr.Observe(float64(len(points)))
 		}
 	}()
 
-	points, fieldsToCreate, err := s.validateSeriesAndFields(points)
+	points, fieldsToCreate, err := shard.validateSeriesAndFields(points) // 会写索引 函数名字太烂体现不出来
 	if err != nil {
 		if _, ok := err.(PartialWriteError); !ok {
 			return err
@@ -668,10 +668,10 @@ func (s *Shard) WritePoints(ctx context.Context, points []models.Point) (rErr er
 		// to the caller, but continue on writing the remaining points.
 		writeError = err
 	}
-	s.stats.fieldsCreated.Add(float64(len(fieldsToCreate)))
+	shard.stats.fieldsCreated.Add(float64(len(fieldsToCreate)))
 
 	// add any new fields and keep track of what needs to be saved
-	if err := s.createFieldsAndMeasurements(fieldsToCreate); err != nil {
+	if err := shard.createFieldsAndMeasurements(fieldsToCreate); err != nil {
 		return err
 	}
 
@@ -683,8 +683,8 @@ func (s *Shard) WritePoints(ctx context.Context, points []models.Point) (rErr er
 	return writeError
 }
 
-// validateSeriesAndFields checks which series and fields are new and whose metadata should be saved and indexed.
-func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, []*FieldCreate, error) {
+// checks which series and fields are new and whose metadata should be saved and indexed.
+func (shard *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, []*FieldCreate, error) {
 	var (
 		fieldsToCreate []*FieldCreate
 		err            error
@@ -698,7 +698,7 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 	tagsSlice := make([]models.Tags, len(points))
 
 	// Check if keys should be unicode validated.
-	validateKeys := s.options.Config.ValidateKeys
+	validateKeys := shard.options.Config.ValidateKeys
 
 	var j int
 	for i, p := range points {
@@ -732,7 +732,7 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 	}
 	points, keys, names, tagsSlice = points[:j], keys[:j], names[:j], tagsSlice[:j]
 
-	engine, err := s.engineNoLock()
+	engine, err := shard.engineNoLock()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -746,12 +746,12 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 			reason = err.Reason
 			dropped += err.Dropped
 			droppedKeys = err.DroppedKeys
-			s.stats.writesDropped.Add(float64(err.Dropped))
+			shard.stats.writesDropped.Add(float64(err.Dropped))
 		case PartialWriteError:
 			reason = err.Reason
 			dropped += err.Dropped
 			droppedKeys = err.DroppedKeys
-			s.stats.writesDropped.Add(float64(err.Dropped))
+			shard.stats.writesDropped.Add(float64(err.Dropped))
 		default:
 			return nil, nil, err
 		}
@@ -788,14 +788,14 @@ func (s *Shard) validateSeriesAndFields(points []models.Point) ([]models.Point, 
 		mf := engine.MeasurementFields(name)
 
 		// Check with the field validator.
-		if err := ValidateFields(mf, p, s.options.Config.SkipFieldSizeValidation); err != nil {
+		if err := ValidateFields(mf, p, shard.options.Config.SkipFieldSizeValidation); err != nil {
 			switch err := err.(type) {
 			case PartialWriteError:
 				if reason == "" {
 					reason = err.Reason
 				}
 				dropped += err.Dropped
-				s.stats.writesDropped.Add(float64(err.Dropped))
+				shard.stats.writesDropped.Add(float64(err.Dropped))
 			default:
 				return nil, nil, err
 			}
@@ -863,12 +863,12 @@ func makePrintable(s string) string {
 	return b.String()
 }
 
-func (s *Shard) createFieldsAndMeasurements(fieldsToCreate []*FieldCreate) error {
+func (shard *Shard) createFieldsAndMeasurements(fieldsToCreate []*FieldCreate) error {
 	if len(fieldsToCreate) == 0 {
 		return nil
 	}
 
-	engine, err := s.engineNoLock()
+	engine, err := shard.engineNoLock()
 	if err != nil {
 		return err
 	}
@@ -890,22 +890,22 @@ func (s *Shard) createFieldsAndMeasurements(fieldsToCreate []*FieldCreate) error
 }
 
 // DeleteSeriesRange deletes all values from for seriesKeys between min and max (inclusive)
-func (s *Shard) DeleteSeriesRange(ctx context.Context, itr SeriesIterator, min, max int64) error {
-	engine, err := s.Engine()
+func (shard *Shard) DeleteSeriesRange(ctx context.Context, itr SeriesIterator, min, max int64) error {
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
 	return engine.DeleteSeriesRange(ctx, itr, min, max)
 }
 
-// DeleteSeriesRangeWithPredicate deletes all values from for seriesKeys between min and max (inclusive)
+// deletes all values from for seriesKeys between min and max (inclusive)
 // for which predicate() returns true. If predicate() is nil, then all values in range are deleted.
-func (s *Shard) DeleteSeriesRangeWithPredicate(
+func (shard *Shard) DeleteSeriesRangeWithPredicate(
 	ctx context.Context,
 	itr SeriesIterator,
 	predicate func(name []byte, tags models.Tags) (int64, int64, bool),
 ) error {
-	engine, err := s.Engine()
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
@@ -913,8 +913,8 @@ func (s *Shard) DeleteSeriesRangeWithPredicate(
 }
 
 // DeleteMeasurement deletes a measurement and all underlying series.
-func (s *Shard) DeleteMeasurement(ctx context.Context, name []byte) error {
-	engine, err := s.Engine()
+func (shard *Shard) DeleteMeasurement(ctx context.Context, name []byte) error {
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
@@ -922,8 +922,8 @@ func (s *Shard) DeleteMeasurement(ctx context.Context, name []byte) error {
 }
 
 // SeriesN returns the unique number of series in the shard.
-func (s *Shard) SeriesN() int64 {
-	engine, err := s.Engine()
+func (shard *Shard) SeriesN() int64 {
+	engine, err := shard.Engine()
 	if err != nil {
 		return 0
 	}
@@ -931,8 +931,8 @@ func (s *Shard) SeriesN() int64 {
 }
 
 // SeriesSketches returns the measurement sketches for the shard.
-func (s *Shard) SeriesSketches() (estimator.Sketch, estimator.Sketch, error) {
-	engine, err := s.Engine()
+func (shard *Shard) SeriesSketches() (estimator.Sketch, estimator.Sketch, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -940,8 +940,8 @@ func (s *Shard) SeriesSketches() (estimator.Sketch, estimator.Sketch, error) {
 }
 
 // MeasurementsSketches returns the measurement sketches for the shard.
-func (s *Shard) MeasurementsSketches() (estimator.Sketch, estimator.Sketch, error) {
-	engine, err := s.Engine()
+func (shard *Shard) MeasurementsSketches() (estimator.Sketch, estimator.Sketch, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -949,8 +949,8 @@ func (s *Shard) MeasurementsSketches() (estimator.Sketch, estimator.Sketch, erro
 }
 
 // MeasurementNamesByRegex returns names of measurements matching the regular expression.
-func (s *Shard) MeasurementNamesByRegex(re *regexp.Regexp) ([][]byte, error) {
-	engine, err := s.Engine()
+func (shard *Shard) MeasurementNamesByRegex(re *regexp.Regexp) ([][]byte, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil, err
 	}
@@ -958,18 +958,18 @@ func (s *Shard) MeasurementNamesByRegex(re *regexp.Regexp) ([][]byte, error) {
 }
 
 // MeasurementNamesByPredicate returns fields for a measurement filtered by an expression.
-func (s *Shard) MeasurementNamesByPredicate(expr influxql.Expr) ([][]byte, error) {
-	index, err := s.Index()
+func (shard *Shard) MeasurementNamesByPredicate(expr influxql.Expr) ([][]byte, error) {
+	index, err := shard.Index()
 	if err != nil {
 		return nil, err
 	}
-	indexSet := IndexSet{Indexes: []Index{index}, SeriesFile: s.sfile}
+	indexSet := IndexSet{Indexes: []Index{index}, SeriesFile: shard.sfile}
 	return indexSet.MeasurementNamesByPredicate(query.OpenAuthorizer, expr)
 }
 
 // MeasurementFields returns fields for a measurement.
-func (s *Shard) MeasurementFields(name []byte) *MeasurementFields {
-	engine, err := s.Engine()
+func (shard *Shard) MeasurementFields(name []byte) *MeasurementFields {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil
 	}
@@ -979,8 +979,8 @@ func (s *Shard) MeasurementFields(name []byte) *MeasurementFields {
 // MeasurementExists returns true if the shard contains name.
 // TODO(edd): This method is currently only being called from tests; do we
 // really need it?
-func (s *Shard) MeasurementExists(name []byte) (bool, error) {
-	engine, err := s.Engine()
+func (shard *Shard) MeasurementExists(name []byte) (bool, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return false, err
 	}
@@ -988,21 +988,21 @@ func (s *Shard) MeasurementExists(name []byte) (bool, error) {
 }
 
 // CreateIterator returns an iterator for the data in the shard.
-func (s *Shard) CreateIterator(ctx context.Context, m *influxql.Measurement, opt query.IteratorOptions) (query.Iterator, error) {
-	engine, err := s.Engine()
+func (shard *Shard) CreateIterator(ctx context.Context, m *influxql.Measurement, opt query.IteratorOptions) (query.Iterator, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil, err
 	}
 	switch m.SystemIterator {
 	case "_fieldKeys":
-		return NewFieldKeysIterator(s, opt)
+		return NewFieldKeysIterator(shard, opt)
 	case "_series":
 		// TODO(benbjohnson): Move up to the Shards.CreateIterator().
-		index, err := s.Index()
+		index, err := shard.Index()
 		if err != nil {
 			return nil, err
 		}
-		indexSet := IndexSet{Indexes: []Index{index}, SeriesFile: s.sfile}
+		indexSet := IndexSet{Indexes: []Index{index}, SeriesFile: shard.sfile}
 
 		itr, err := NewSeriesPointIterator(indexSet, opt)
 		if err != nil {
@@ -1011,21 +1011,21 @@ func (s *Shard) CreateIterator(ctx context.Context, m *influxql.Measurement, opt
 
 		return query.NewInterruptIterator(itr, opt.InterruptCh), nil
 	case "_tagKeys":
-		return NewTagKeysIterator(s, opt)
+		return NewTagKeysIterator(shard, opt)
 	}
 	return engine.CreateIterator(ctx, m.Name, opt)
 }
 
-func (s *Shard) CreateSeriesCursor(ctx context.Context, req SeriesCursorRequest, cond influxql.Expr) (SeriesCursor, error) {
-	index, err := s.Index()
+func (shard *Shard) CreateSeriesCursor(ctx context.Context, req SeriesCursorRequest, cond influxql.Expr) (SeriesCursor, error) {
+	index, err := shard.Index()
 	if err != nil {
 		return nil, err
 	}
-	return newSeriesCursor(req, IndexSet{Indexes: []Index{index}, SeriesFile: s.sfile}, cond)
+	return newSeriesCursor(req, IndexSet{Indexes: []Index{index}, SeriesFile: shard.sfile}, cond)
 }
 
-func (s *Shard) CreateCursorIterator(ctx context.Context) (CursorIterator, error) {
-	engine, err := s.Engine()
+func (shard *Shard) CreateCursorIterator(ctx context.Context) (CursorIterator, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil, err
 	}
@@ -1033,8 +1033,8 @@ func (s *Shard) CreateCursorIterator(ctx context.Context) (CursorIterator, error
 }
 
 // FieldDimensions returns unique sets of fields and dimensions across a list of sources.
-func (s *Shard) FieldDimensions(measurements []string) (fields map[string]influxql.DataType, dimensions map[string]struct{}, err error) {
-	engine, err := s.Engine()
+func (shard *Shard) FieldDimensions(measurements []string) (fields map[string]influxql.DataType, dimensions map[string]struct{}, err error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1042,7 +1042,7 @@ func (s *Shard) FieldDimensions(measurements []string) (fields map[string]influx
 	fields = make(map[string]influxql.DataType)
 	dimensions = make(map[string]struct{})
 
-	index, err := s.Index()
+	index, err := shard.Index()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1087,7 +1087,7 @@ func (s *Shard) FieldDimensions(measurements []string) (fields map[string]influx
 			}
 		}
 
-		indexSet := IndexSet{Indexes: []Index{index}, SeriesFile: s.sfile}
+		indexSet := IndexSet{Indexes: []Index{index}, SeriesFile: shard.sfile}
 		if err := indexSet.ForEachMeasurementTagKey([]byte(name), func(key []byte) error {
 			dimensions[string(key)] = struct{}{}
 			return nil
@@ -1100,8 +1100,8 @@ func (s *Shard) FieldDimensions(measurements []string) (fields map[string]influx
 }
 
 // mapType returns the data type for the field within the measurement.
-func (s *Shard) mapType(measurement, field string) (influxql.DataType, error) {
-	engine, err := s.engineNoLock()
+func (shard *Shard) mapType(measurement, field string) (influxql.DataType, error) {
+	engine, err := shard.engineNoLock()
 	if err != nil {
 		return 0, err
 	}
@@ -1152,8 +1152,8 @@ func (s *Shard) mapType(measurement, field string) (influxql.DataType, error) {
 
 // expandSources expands regex sources and removes duplicates.
 // NOTE: sources must be normalized (db and rp set) before calling this function.
-func (s *Shard) expandSources(sources influxql.Sources) (influxql.Sources, error) {
-	engine, err := s.engineNoLock()
+func (shard *Shard) expandSources(sources influxql.Sources) (influxql.Sources, error) {
+	engine, err := shard.engineNoLock()
 	if err != nil {
 		return nil, err
 	}
@@ -1209,46 +1209,46 @@ func (s *Shard) expandSources(sources influxql.Sources) (influxql.Sources, error
 
 // Backup backs up the shard by creating a tar archive of all TSM files that
 // have been modified since the provided time. See Engine.Backup for more details.
-func (s *Shard) Backup(w io.Writer, basePath string, since time.Time) error {
-	engine, err := s.Engine()
+func (shard *Shard) Backup(w io.Writer, basePath string, since time.Time) error {
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
 	return engine.Backup(w, basePath, since)
 }
 
-func (s *Shard) Export(w io.Writer, basePath string, start time.Time, end time.Time) error {
-	engine, err := s.Engine()
+func (shard *Shard) Export(w io.Writer, basePath string, start time.Time, end time.Time) error {
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
 	return engine.Export(w, basePath, start, end)
 }
 
-// Restore restores data to the underlying engine for the shard.
+// restores data to the underlying engine for the shard.
 // The shard is reopened after restore.
-func (s *Shard) Restore(ctx context.Context, r io.Reader, basePath string) error {
+func (shard *Shard) Restore(ctx context.Context, r io.Reader, basePath string) error {
 	closeWaitNeeded, err := func() (bool, error) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
+		shard.mu.Lock()
+		defer shard.mu.Unlock()
 
 		closeWaitNeeded := false
 
 		// Special case - we can still restore to a disabled shard, so we should
 		// only check if the engine is closed and not care if the shard is
 		// disabled.
-		if s._engine == nil {
+		if shard._engine == nil {
 			return closeWaitNeeded, ErrEngineClosed
 		}
 
 		// Restore to engine.
-		if err := s._engine.Restore(r, basePath); err != nil {
+		if err := shard._engine.Restore(r, basePath); err != nil {
 			return closeWaitNeeded, nil
 		}
 
 		// Close shard.
 		closeWaitNeeded = true // about to call closeNoLock, closeWait will be needed
-		if err := s.closeNoLock(); err != nil {
+		if err := shard.closeNoLock(); err != nil {
 			return closeWaitNeeded, err
 		}
 		return closeWaitNeeded, nil
@@ -1256,7 +1256,7 @@ func (s *Shard) Restore(ctx context.Context, r io.Reader, basePath string) error
 
 	// Now that we've unlocked, we can call closeWait if needed
 	if closeWaitNeeded {
-		werr := s.closeWait()
+		werr := shard.closeWait()
 		// Return the first error encountered to the caller
 		if err == nil {
 			err = werr
@@ -1267,29 +1267,29 @@ func (s *Shard) Restore(ctx context.Context, r io.Reader, basePath string) error
 	}
 
 	// Reopen engine. Need locked method since we had to unlock for closeWait.
-	return s.Open(ctx)
+	return shard.Open(ctx)
 }
 
 // Import imports data to the underlying engine for the shard. r should
 // be a reader from a backup created by Backup.
-func (s *Shard) Import(r io.Reader, basePath string) error {
+func (shard *Shard) Import(r io.Reader, basePath string) error {
 	// Special case - we can still import to a disabled shard, so we should
 	// only check if the engine is closed and not care if the shard is
 	// disabled.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s._engine == nil {
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if shard._engine == nil {
 		return ErrEngineClosed
 	}
 
 	// Import to engine.
-	return s._engine.Import(r, basePath)
+	return shard._engine.Import(r, basePath)
 }
 
 // CreateSnapshot will return a path to a temp directory
 // containing hard links to the underlying shard files.
-func (s *Shard) CreateSnapshot(skipCacheOk bool) (string, error) {
-	engine, err := s.Engine()
+func (shard *Shard) CreateSnapshot(skipCacheOk bool) (string, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return "", err
 	}
@@ -1297,16 +1297,16 @@ func (s *Shard) CreateSnapshot(skipCacheOk bool) (string, error) {
 }
 
 // ForEachMeasurementName iterates over each measurement in the shard.
-func (s *Shard) ForEachMeasurementName(fn func(name []byte) error) error {
-	engine, err := s.Engine()
+func (shard *Shard) ForEachMeasurementName(fn func(name []byte) error) error {
+	engine, err := shard.Engine()
 	if err != nil {
 		return err
 	}
 	return engine.ForEachMeasurementName(fn)
 }
 
-func (s *Shard) TagKeyCardinality(name, key []byte) int {
-	engine, err := s.Engine()
+func (shard *Shard) TagKeyCardinality(name, key []byte) int {
+	engine, err := shard.Engine()
 	if err != nil {
 		return 0
 	}
@@ -1314,8 +1314,8 @@ func (s *Shard) TagKeyCardinality(name, key []byte) int {
 }
 
 // Digest returns a digest of the shard.
-func (s *Shard) Digest() (io.ReadCloser, int64, string, error) {
-	engine, err := s.Engine()
+func (shard *Shard) Digest() (io.ReadCloser, int64, string, error) {
+	engine, err := shard.Engine()
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -1338,19 +1338,19 @@ func (s *Shard) Digest() (io.ReadCloser, int64, string, error) {
 //
 // If a caller needs an Engine reference but is already under a lock, then they
 // should use engineNoLock().
-func (s *Shard) Engine() (Engine, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.engineNoLock()
+func (shard *Shard) Engine() (Engine, error) {
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	return shard.engineNoLock()
 }
 
 // engineNoLock is similar to calling engine(), but the caller must guarantee
 // that they already hold an appropriate lock.
-func (s *Shard) engineNoLock() (Engine, error) {
-	if err := s.ready(); err != nil {
+func (shard *Shard) engineNoLock() (Engine, error) {
+	if err := shard.ready(); err != nil {
 		return nil, err
 	}
-	return s._engine, nil
+	return shard._engine, nil
 }
 
 type ShardGroup interface {

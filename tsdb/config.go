@@ -21,20 +21,20 @@ const (
 
 	// DefaultCacheMaxMemorySize is the maximum size a shard's cache can
 	// reach before it starts rejecting writes.
-	DefaultCacheMaxMemorySize = 1024 * 1024 * 1024 // 1GB
+	DefaultCacheMaxMemorySize = 1024 * 1024 * 1024 // 1GB 对应 storage-cache-max-memory-size
 
 	// DefaultCacheSnapshotMemorySize is the size at which the engine will
 	// snapshot the cache and write it to a TSM file, freeing up memory
-	DefaultCacheSnapshotMemorySize = 25 * 1024 * 1024 // 25MB
+	DefaultCacheSnapshotMemorySize = 25 * 1024 * 1024 // 25MB 对应 storage-cache-snapshot-memory-size
 
 	// DefaultCacheSnapshotWriteColdDuration is the length of time at which
 	// the engine will snapshot the cache and write it to a new TSM file if
 	// the shard hasn't received writes or deletes
-	DefaultCacheSnapshotWriteColdDuration = time.Duration(10 * time.Minute)
+	DefaultCacheSnapshotWriteColdDuration = 10 * time.Minute
 
 	// DefaultCompactFullWriteColdDuration is the duration at which the engine
 	// will compact all TSM files in a shard if it hasn't received a write or delete
-	DefaultCompactFullWriteColdDuration = time.Duration(4 * time.Hour)
+	DefaultCompactFullWriteColdDuration = 4 * time.Hour
 
 	// DefaultCompactThroughput is the rate limit in bytes per second that we
 	// will allow TSM compactions to write to disk. Not that short bursts are allowed
@@ -71,7 +71,7 @@ const (
 	DefaultSeriesFileMaxConcurrentSnapshotCompactions = 0
 )
 
-// Config holds the configuration for the tsbd package.
+// holds the configuration for the tsbd package.
 type Config struct {
 	Dir    string `toml:"dir"`
 	Engine string `toml:"-"`
@@ -99,44 +99,44 @@ type Config struct {
 	ValidateKeys bool `toml:"validate-keys"`
 
 	// When true, skips size validation on fields
-	SkipFieldSizeValidation bool `toml:"skip-field-size-validation"`
+	SkipFieldSizeValidation bool `toml:"skip-field-size-validation"` // 对应 storage-no-validate-field-size
 
 	// Query logging
 	QueryLogEnabled bool `toml:"query-log-enabled"`
 
 	// Compaction options for tsm1 (descriptions above with defaults)
-	CacheMaxMemorySize             toml.Size     `toml:"cache-max-memory-size"`
-	CacheSnapshotMemorySize        toml.Size     `toml:"cache-snapshot-memory-size"`
-	CacheSnapshotWriteColdDuration toml.Duration `toml:"cache-snapshot-write-cold-duration"`
-	CompactFullWriteColdDuration   toml.Duration `toml:"compact-full-write-cold-duration"`
+	CacheMaxMemorySize             toml.Size     `toml:"cache-max-memory-size"` // 对应 storage-cache-max-memory-size
+	CacheSnapshotMemorySize        toml.Size     `toml:"cache-snapshot-memory-size"` // 对应 storage-cache-snapshot-memory-size
+	CacheSnapshotWriteColdDuration toml.Duration `toml:"cache-snapshot-write-cold-duration"` // 对应 storage-cache-snapshot-write-cold-duration
+	CompactFullWriteColdDuration   toml.Duration `toml:"compact-full-write-cold-duration"` // 对应 storage-compact-full-write-cold-duration
 	CompactThroughput              toml.Size     `toml:"compact-throughput"`
-	CompactThroughputBurst         toml.Size     `toml:"compact-throughput-burst"`
+	CompactThroughputBurst         toml.Size     `toml:"compact-throughput-burst"` // 对应 storage-compact-throughput-burst
 
 	// Limits
 
-	// MaxConcurrentCompactions is the maximum number of concurrent level and full compactions
+	// the maximum number of concurrent level and full compactions
 	// that can be running at one time across all shards.  Compactions scheduled to run when the
 	// limit is reached are blocked until a running compaction completes.  Snapshot compactions are
 	// not affected by this limit.  A value of 0 limits compactions to runtime.GOMAXPROCS(0).
-	MaxConcurrentCompactions int `toml:"max-concurrent-compactions"`
+	MaxConcurrentCompactions int `toml:"max-concurrent-compactions"` // 对应 storage-max-concurrent-compactions
 
 	// MaxIndexLogFileSize is the threshold, in bytes, when an index write-ahead log file will
 	// compact into an index file. Lower sizes will cause log files to be compacted more quickly
 	// and result in lower heap usage at the expense of write throughput. Higher sizes will
 	// be compacted less frequently, store more series in-memory, and provide higher write throughput.
-	MaxIndexLogFileSize toml.Size `toml:"max-index-log-file-size"`
+	MaxIndexLogFileSize toml.Size `toml:"max-index-log-file-size"` // 对应 storage-max-index-log-file-size
 
 	// SeriesIDSetCacheSize is the number items that can be cached within the TSI index. TSI caching can help
 	// with query performance when the same tag key/value predicates are commonly used on queries.
 	// Setting series-id-set-cache-size to 0 disables the cache.
 	SeriesIDSetCacheSize int `toml:"series-id-set-cache-size"`
 
-	// SeriesFileMaxConcurrentSnapshotCompactions is the maximum number of concurrent snapshot compactions
+	// the maximum number of concurrent seriesFile snapshot compactions
 	// that can be running at one time across all series partitions in a database. Snapshots scheduled
 	// to run when the limit is reached are blocked until a running snapshot completes.  Only snapshot
 	// compactions are affected by this limit. A value of 0 limits snapshot compactions to the lesser of
 	// 8 (series file partition quantity) and runtime.GOMAXPROCS(0).
-	SeriesFileMaxConcurrentSnapshotCompactions int `toml:"series-file-max-concurrent-snapshot-compactions"`
+	SeriesFileMaxConcurrentSnapshotCompactions int `toml:"series-file-max-concurrent-snapshot-compactions"` // 对应 storage-series-file-max-concurrent-snapshot-compactions"
 
 	TraceLoggingEnabled bool `toml:"trace-logging-enabled"`
 

@@ -63,45 +63,45 @@ func NewSeriesPartition(id int, path string, compactionLimiter limiter.Fixed) *S
 }
 
 // Open memory maps the data file at the partition's path.
-func (p *SeriesPartition) Open() error {
-	if p.closed {
+func (seriesPartition *SeriesPartition) Open() error {
+	if seriesPartition.closed {
 		return errors.New("tsdb: cannot reopen series partition")
 	}
 
 	// Create path if it doesn't exist.
-	if err := os.MkdirAll(filepath.Join(p.path), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Join(seriesPartition.path), 0777); err != nil {
 		return err
 	}
 
 	// Open components.
 	if err := func() (err error) {
-		if err := p.openSegments(); err != nil {
+		if err := seriesPartition.openSegments(); err != nil {
 			return err
 		}
 
 		// Init last segment for writes.
-		if err := p.activeSegment().InitForWrite(); err != nil {
+		if err := seriesPartition.activeSegment().InitForWrite(); err != nil {
 			return err
 		}
 
-		p.index = NewSeriesIndex(p.IndexPath())
-		if err := p.index.Open(); err != nil {
+		seriesPartition.index = NewSeriesIndex(seriesPartition.IndexPath())
+		if err := seriesPartition.index.Open(); err != nil {
 			return err
-		} else if err := p.index.Recover(p.segments); err != nil {
+		} else if err := seriesPartition.index.Recover(seriesPartition.segments); err != nil {
 			return err
 		}
 
 		return nil
 	}(); err != nil {
-		p.Close()
+		seriesPartition.Close()
 		return err
 	}
 
 	return nil
 }
 
-func (p *SeriesPartition) openSegments() error {
-	des, err := os.ReadDir(p.path)
+func (seriesPartition *SeriesPartition) openSegments() error {
+	des, err := os.ReadDir(seriesPartition.path)
 	if err != nil {
 		return err
 	}
@@ -112,79 +112,79 @@ func (p *SeriesPartition) openSegments() error {
 			continue
 		}
 
-		segment := NewSeriesSegment(segmentID, filepath.Join(p.path, de.Name()))
+		segment := NewSeriesSegment(segmentID, filepath.Join(seriesPartition.path, de.Name()))
 		if err := segment.Open(); err != nil {
 			return err
 		}
-		p.segments = append(p.segments, segment)
+		seriesPartition.segments = append(seriesPartition.segments, segment)
 	}
 
 	// Find max series id by searching segments in reverse order.
-	for i := len(p.segments) - 1; i >= 0; i-- {
-		if seq := p.segments[i].MaxSeriesID(); seq >= p.seq {
+	for i := len(seriesPartition.segments) - 1; i >= 0; i-- {
+		if seq := seriesPartition.segments[i].MaxSeriesID(); seq >= seriesPartition.seq {
 			// Reset our sequence num to the next one to assign
-			p.seq = seq + SeriesFilePartitionN
+			seriesPartition.seq = seq + SeriesFilePartitionN
 			break
 		}
 	}
 
 	// Create initial segment if none exist.
-	if len(p.segments) == 0 {
-		segment, err := CreateSeriesSegment(0, filepath.Join(p.path, "0000"))
+	if len(seriesPartition.segments) == 0 {
+		segment, err := CreateSeriesSegment(0, filepath.Join(seriesPartition.path, "0000"))
 		if err != nil {
 			return err
 		}
-		p.segments = append(p.segments, segment)
+		seriesPartition.segments = append(seriesPartition.segments, segment)
 	}
 
 	return nil
 }
 
 // Close unmaps the data files.
-func (p *SeriesPartition) Close() (err error) {
-	p.once.Do(func() { close(p.closing) })
-	p.wg.Wait()
+func (seriesPartition *SeriesPartition) Close() (err error) {
+	seriesPartition.once.Do(func() { close(seriesPartition.closing) })
+	seriesPartition.wg.Wait()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	seriesPartition.mu.Lock()
+	defer seriesPartition.mu.Unlock()
 
-	p.closed = true
+	seriesPartition.closed = true
 
-	for _, s := range p.segments {
+	for _, s := range seriesPartition.segments {
 		if e := s.Close(); e != nil && err == nil {
 			err = e
 		}
 	}
-	p.segments = nil
+	seriesPartition.segments = nil
 
-	if p.index != nil {
-		if e := p.index.Close(); e != nil && err == nil {
+	if seriesPartition.index != nil {
+		if e := seriesPartition.index.Close(); e != nil && err == nil {
 			err = e
 		}
 	}
-	p.index = nil
+	seriesPartition.index = nil
 
 	return err
 }
 
 // ID returns the partition id.
-func (p *SeriesPartition) ID() int { return p.id }
+func (seriesPartition *SeriesPartition) ID() int { return seriesPartition.id }
 
 // Path returns the path to the partition.
-func (p *SeriesPartition) Path() string { return p.path }
+func (seriesPartition *SeriesPartition) Path() string { return seriesPartition.path }
 
 // IndexPath returns the path to the series index.
-func (p *SeriesPartition) IndexPath() string { return filepath.Join(p.path, "index") }
+func (seriesPartition *SeriesPartition) IndexPath() string { return filepath.Join(seriesPartition.path, "index") }
 
 // Index returns the partition's index.
-func (p *SeriesPartition) Index() *SeriesIndex { return p.index }
+func (seriesPartition *SeriesPartition) Index() *SeriesIndex { return seriesPartition.index }
 
 // Segments returns a list of partition segments. Used for testing.
-func (p *SeriesPartition) Segments() []*SeriesSegment { return p.segments }
+func (seriesPartition *SeriesPartition) Segments() []*SeriesSegment { return seriesPartition.segments }
 
 // FileSize returns the size of all partitions, in bytes.
-func (p *SeriesPartition) FileSize() (n int64, err error) {
-	for _, ss := range p.segments {
+func (seriesPartition *SeriesPartition) FileSize() (n int64, err error) {
+	for _, ss := range seriesPartition.segments {
 		fi, err := os.Stat(ss.Path())
 		if err != nil {
 			return 0, err
@@ -194,27 +194,27 @@ func (p *SeriesPartition) FileSize() (n int64, err error) {
 	return n, err
 }
 
-// CreateSeriesListIfNotExists creates a list of series in bulk if they don't exist.
+// creates a list of series in bulk if they don't exist.
 // The ids parameter is modified to contain series IDs for all keys belonging to this partition.
-func (p *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitionIDs []int, ids []uint64) error {
+func (seriesPartition *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitionIDs []int, ids []uint64) error {
 	var writeRequired bool
-	p.mu.RLock()
-	if p.closed {
-		p.mu.RUnlock()
+	seriesPartition.mu.RLock()
+	if seriesPartition.closed {
+		seriesPartition.mu.RUnlock()
 		return ErrSeriesPartitionClosed
 	}
 	for i := range keys {
-		if keyPartitionIDs[i] != p.id {
+		if keyPartitionIDs[i] != seriesPartition.id {
 			continue
 		}
-		id := p.index.FindIDBySeriesKey(p.segments, keys[i])
+		id := seriesPartition.index.FindIDBySeriesKey(seriesPartition.segments, keys[i])
 		if id == 0 {
 			writeRequired = true
 			continue
 		}
 		ids[i] = id
 	}
-	p.mu.RUnlock()
+	seriesPartition.mu.RUnlock()
 
 	// Exit if all series for this partition already exist.
 	if !writeRequired {
@@ -228,10 +228,10 @@ func (p *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitio
 	newKeyRanges := make([]keyRange, 0, len(keys))
 
 	// Obtain write lock to create new series.
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	seriesPartition.mu.Lock()
+	defer seriesPartition.mu.Unlock()
 
-	if p.closed {
+	if seriesPartition.closed {
 		return ErrSeriesPartitionClosed
 	}
 
@@ -240,7 +240,7 @@ func (p *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitio
 
 	for i := range keys {
 		// Skip series that don't belong to the partition or have already been created.
-		if keyPartitionIDs[i] != p.id || ids[i] != 0 {
+		if keyPartitionIDs[i] != seriesPartition.id || ids[i] != 0 {
 			continue
 		}
 
@@ -248,12 +248,12 @@ func (p *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitio
 		key := keys[i]
 		if ids[i] = newIDs[string(key)]; ids[i] != 0 {
 			continue
-		} else if ids[i] = p.index.FindIDBySeriesKey(p.segments, key); ids[i] != 0 {
+		} else if ids[i] = seriesPartition.index.FindIDBySeriesKey(seriesPartition.segments, key); ids[i] != 0 {
 			continue
 		}
 
 		// Write to series log and save offset.
-		id, offset, err := p.insert(key)
+		id, offset, err := seriesPartition.insert(key)
 		if err != nil {
 			return err
 		}
@@ -264,7 +264,7 @@ func (p *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitio
 	}
 
 	// Flush active segment writes so we can access data in mmap.
-	if segment := p.activeSegment(); segment != nil {
+	if segment := seriesPartition.activeSegment(); segment != nil {
 		if err := segment.Flush(); err != nil {
 			return err
 		}
@@ -272,33 +272,33 @@ func (p *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitio
 
 	// Add keys to hash map(s).
 	for _, keyRange := range newKeyRanges {
-		p.index.Insert(p.seriesKeyByOffset(keyRange.offset), keyRange.id, keyRange.offset)
+		seriesPartition.index.Insert(seriesPartition.seriesKeyByOffset(keyRange.offset), keyRange.id, keyRange.offset)
 	}
 
 	// Check if we've crossed the compaction threshold.
-	if p.compactionsEnabled() && !p.compacting &&
-		p.CompactThreshold != 0 && p.index.InMemCount() >= uint64(p.CompactThreshold) &&
-		p.compactionLimiter.TryTake() {
-		p.compacting = true
-		log, logEnd := logger.NewOperation(context.TODO(), p.Logger, "Series partition compaction", "series_partition_compaction", zap.String("path", p.path))
+	if seriesPartition.compactionsEnabled() && !seriesPartition.compacting &&
+		seriesPartition.CompactThreshold != 0 && seriesPartition.index.InMemCount() >= uint64(seriesPartition.CompactThreshold) &&
+		seriesPartition.compactionLimiter.TryTake() {
+		seriesPartition.compacting = true
+		log, logEnd := logger.NewOperation(context.TODO(), seriesPartition.Logger, "Series partition compaction", "series_partition_compaction", zap.String("path", seriesPartition.path))
 
-		p.wg.Add(1)
+		seriesPartition.wg.Add(1)
 		go func() {
-			defer p.wg.Done()
-			defer p.compactionLimiter.Release()
+			defer seriesPartition.wg.Done()
+			defer seriesPartition.compactionLimiter.Release()
 
-			compactor := NewSeriesPartitionCompactor()
-			compactor.cancel = p.closing
-			if err := compactor.Compact(p); err != nil {
+			seriesPartitionCompactor := NewSeriesPartitionCompactor()
+			seriesPartitionCompactor.cancel = seriesPartition.closing
+			if err := seriesPartitionCompactor.Compact(seriesPartition); err != nil {
 				log.Error("series partition compaction failed", zap.Error(err))
 			}
 
 			logEnd()
 
 			// Clear compaction flag.
-			p.mu.Lock()
-			p.compacting = false
-			p.mu.Unlock()
+			seriesPartition.mu.Lock()
+			seriesPartition.compacting = false
+			seriesPartition.mu.Unlock()
 		}()
 	}
 
@@ -306,76 +306,76 @@ func (p *SeriesPartition) CreateSeriesListIfNotExists(keys [][]byte, keyPartitio
 }
 
 // Compacting returns if the SeriesPartition is currently compacting.
-func (p *SeriesPartition) Compacting() bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.compacting
+func (seriesPartition *SeriesPartition) Compacting() bool {
+	seriesPartition.mu.RLock()
+	defer seriesPartition.mu.RUnlock()
+	return seriesPartition.compacting
 }
 
 // DeleteSeriesID flags a series as permanently deleted.
 // If the series is reintroduced later then it must create a new id.
-func (p *SeriesPartition) DeleteSeriesID(id uint64) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (seriesPartition *SeriesPartition) DeleteSeriesID(id uint64) error {
+	seriesPartition.mu.Lock()
+	defer seriesPartition.mu.Unlock()
 
-	if p.closed {
+	if seriesPartition.closed {
 		return ErrSeriesPartitionClosed
 	}
 
 	// Already tombstoned, ignore.
-	if p.index.IsDeleted(id) {
+	if seriesPartition.index.IsDeleted(id) {
 		return nil
 	}
 
 	// Write tombstone entry.
-	_, err := p.writeLogEntry(AppendSeriesEntry(nil, SeriesEntryTombstoneFlag, id, nil))
+	_, err := seriesPartition.writeLogEntry(AppendSeriesEntry(nil, SeriesEntryTombstoneFlag, id, nil))
 	if err != nil {
 		return err
 	}
 
 	// Flush active segment write.
-	if segment := p.activeSegment(); segment != nil {
+	if segment := seriesPartition.activeSegment(); segment != nil {
 		if err := segment.Flush(); err != nil {
 			return err
 		}
 	}
 
 	// Mark tombstone in memory.
-	p.index.Delete(id)
+	seriesPartition.index.Delete(id)
 
 	return nil
 }
 
 // IsDeleted returns true if the ID has been deleted before.
-func (p *SeriesPartition) IsDeleted(id uint64) bool {
-	p.mu.RLock()
-	if p.closed {
-		p.mu.RUnlock()
+func (seriesPartition *SeriesPartition) IsDeleted(id uint64) bool {
+	seriesPartition.mu.RLock()
+	if seriesPartition.closed {
+		seriesPartition.mu.RUnlock()
 		return false
 	}
-	v := p.index.IsDeleted(id)
-	p.mu.RUnlock()
+	v := seriesPartition.index.IsDeleted(id)
+	seriesPartition.mu.RUnlock()
 	return v
 }
 
 // SeriesKey returns the series key for a given id.
-func (p *SeriesPartition) SeriesKey(id uint64) []byte {
+func (seriesPartition *SeriesPartition) SeriesKey(id uint64) []byte {
 	if id == 0 {
 		return nil
 	}
-	p.mu.RLock()
-	if p.closed {
-		p.mu.RUnlock()
+	seriesPartition.mu.RLock()
+	if seriesPartition.closed {
+		seriesPartition.mu.RUnlock()
 		return nil
 	}
-	key := p.seriesKeyByOffset(p.index.FindOffsetByID(id))
-	p.mu.RUnlock()
+	key := seriesPartition.seriesKeyByOffset(seriesPartition.index.FindOffsetByID(id))
+	seriesPartition.mu.RUnlock()
 	return key
 }
 
 // Series returns the parsed series name and tags for an offset.
-func (p *SeriesPartition) Series(id uint64) ([]byte, models.Tags) {
-	key := p.SeriesKey(id)
+func (seriesPartition *SeriesPartition) Series(id uint64) ([]byte, models.Tags) {
+	key := seriesPartition.SeriesKey(id)
 	if key == nil {
 		return nil, nil
 	}
@@ -383,82 +383,82 @@ func (p *SeriesPartition) Series(id uint64) ([]byte, models.Tags) {
 }
 
 // FindIDBySeriesKey return the series id for the series key.
-func (p *SeriesPartition) FindIDBySeriesKey(key []byte) uint64 {
-	p.mu.RLock()
-	if p.closed {
-		p.mu.RUnlock()
+func (seriesPartition *SeriesPartition) FindIDBySeriesKey(key []byte) uint64 {
+	seriesPartition.mu.RLock()
+	if seriesPartition.closed {
+		seriesPartition.mu.RUnlock()
 		return 0
 	}
-	id := p.index.FindIDBySeriesKey(p.segments, key)
-	p.mu.RUnlock()
+	id := seriesPartition.index.FindIDBySeriesKey(seriesPartition.segments, key)
+	seriesPartition.mu.RUnlock()
 	return id
 }
 
 // SeriesCount returns the number of series.
-func (p *SeriesPartition) SeriesCount() uint64 {
-	p.mu.RLock()
-	if p.closed {
-		p.mu.RUnlock()
+func (seriesPartition *SeriesPartition) SeriesCount() uint64 {
+	seriesPartition.mu.RLock()
+	if seriesPartition.closed {
+		seriesPartition.mu.RUnlock()
 		return 0
 	}
-	n := p.index.Count()
-	p.mu.RUnlock()
+	n := seriesPartition.index.Count()
+	seriesPartition.mu.RUnlock()
 	return n
 }
 
-func (p *SeriesPartition) DisableCompactions() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.compactionsDisabled++
+func (seriesPartition *SeriesPartition) DisableCompactions() {
+	seriesPartition.mu.Lock()
+	defer seriesPartition.mu.Unlock()
+	seriesPartition.compactionsDisabled++
 }
 
-func (p *SeriesPartition) EnableCompactions() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (seriesPartition *SeriesPartition) EnableCompactions() {
+	seriesPartition.mu.Lock()
+	defer seriesPartition.mu.Unlock()
 
-	if p.compactionsEnabled() {
+	if seriesPartition.compactionsEnabled() {
 		return
 	}
-	p.compactionsDisabled--
+	seriesPartition.compactionsDisabled--
 }
 
-func (p *SeriesPartition) compactionsEnabled() bool {
-	return p.compactionLimiter != nil && p.compactionsDisabled == 0
+func (seriesPartition *SeriesPartition) compactionsEnabled() bool {
+	return seriesPartition.compactionLimiter != nil && seriesPartition.compactionsDisabled == 0
 }
 
 // AppendSeriesIDs returns a list of all series ids.
-func (p *SeriesPartition) AppendSeriesIDs(a []uint64) []uint64 {
-	for _, segment := range p.segments {
+func (seriesPartition *SeriesPartition) AppendSeriesIDs(a []uint64) []uint64 {
+	for _, segment := range seriesPartition.segments {
 		a = segment.AppendSeriesIDs(a)
 	}
 	return a
 }
 
 // activeSegment returns the last segment.
-func (p *SeriesPartition) activeSegment() *SeriesSegment {
-	if len(p.segments) == 0 {
+func (seriesPartition *SeriesPartition) activeSegment() *SeriesSegment {
+	if len(seriesPartition.segments) == 0 {
 		return nil
 	}
-	return p.segments[len(p.segments)-1]
+	return seriesPartition.segments[len(seriesPartition.segments)-1]
 }
 
-func (p *SeriesPartition) insert(key []byte) (id uint64, offset int64, err error) {
-	id = p.seq
-	offset, err = p.writeLogEntry(AppendSeriesEntry(nil, SeriesEntryInsertFlag, id, key))
+func (seriesPartition *SeriesPartition) insert(key []byte) (id uint64, offset int64, err error) {
+	id = seriesPartition.seq
+	offset, err = seriesPartition.writeLogEntry(AppendSeriesEntry(nil, SeriesEntryInsertFlag, id, key))
 	if err != nil {
 		return 0, 0, err
 	}
 
-	p.seq += SeriesFilePartitionN
+	seriesPartition.seq += SeriesFilePartitionN
 	return id, offset, nil
 }
 
 // writeLogEntry appends an entry to the end of the active segment.
 // If there is no more room in the segment then a new segment is added.
-func (p *SeriesPartition) writeLogEntry(data []byte) (offset int64, err error) {
-	segment := p.activeSegment()
+func (seriesPartition *SeriesPartition) writeLogEntry(data []byte) (offset int64, err error) {
+	segment := seriesPartition.activeSegment()
 	if segment == nil || !segment.CanWrite(data) {
-		if segment, err = p.createSegment(); err != nil {
+		if segment, err = seriesPartition.createSegment(); err != nil {
 			return 0, err
 		}
 	}
@@ -466,9 +466,9 @@ func (p *SeriesPartition) writeLogEntry(data []byte) (offset int64, err error) {
 }
 
 // createSegment appends a new segment
-func (p *SeriesPartition) createSegment() (*SeriesSegment, error) {
+func (seriesPartition *SeriesPartition) createSegment() (*SeriesSegment, error) {
 	// Close writer for active segment, if one exists.
-	if segment := p.activeSegment(); segment != nil {
+	if segment := seriesPartition.activeSegment(); segment != nil {
 		if err := segment.CloseForWrite(); err != nil {
 			return nil, err
 		}
@@ -476,17 +476,17 @@ func (p *SeriesPartition) createSegment() (*SeriesSegment, error) {
 
 	// Generate a new sequential segment identifier.
 	var id uint16
-	if len(p.segments) > 0 {
-		id = p.segments[len(p.segments)-1].ID() + 1
+	if len(seriesPartition.segments) > 0 {
+		id = seriesPartition.segments[len(seriesPartition.segments)-1].ID() + 1
 	}
 	filename := fmt.Sprintf("%04x", id)
 
 	// Generate new empty segment.
-	segment, err := CreateSeriesSegment(id, filepath.Join(p.path, filename))
+	segment, err := CreateSeriesSegment(id, filepath.Join(seriesPartition.path, filename))
 	if err != nil {
 		return nil, err
 	}
-	p.segments = append(p.segments, segment)
+	seriesPartition.segments = append(seriesPartition.segments, segment)
 
 	// Allow segment to write.
 	if err := segment.InitForWrite(); err != nil {
@@ -496,13 +496,13 @@ func (p *SeriesPartition) createSegment() (*SeriesSegment, error) {
 	return segment, nil
 }
 
-func (p *SeriesPartition) seriesKeyByOffset(offset int64) []byte {
+func (seriesPartition *SeriesPartition) seriesKeyByOffset(offset int64) []byte {
 	if offset == 0 {
 		return nil
 	}
 
 	segmentID, pos := SplitSeriesOffset(offset)
-	for _, segment := range p.segments {
+	for _, segment := range seriesPartition.segments {
 		if segment.ID() != segmentID {
 			continue
 		}
@@ -525,36 +525,36 @@ func NewSeriesPartitionCompactor() *SeriesPartitionCompactor {
 }
 
 // Compact rebuilds the series partition index.
-func (c *SeriesPartitionCompactor) Compact(p *SeriesPartition) error {
+func (c *SeriesPartitionCompactor) Compact(seriesPartition *SeriesPartition) error {
 	// Snapshot the partitions and index so we can check tombstones and replay at the end under lock.
-	p.mu.RLock()
-	segments := CloneSeriesSegments(p.segments)
-	index := p.index.Clone()
-	seriesN := p.index.Count()
-	p.mu.RUnlock()
+	seriesPartition.mu.RLock()
+	segments := CloneSeriesSegments(seriesPartition.segments)
+	seriesIndex := seriesPartition.index.Clone()
+	seriesN := seriesPartition.index.Count()
+	seriesPartition.mu.RUnlock()
 
 	// Compact index to a temporary location.
-	indexPath := index.path + ".compacting"
-	if err := c.compactIndexTo(index, seriesN, segments, indexPath); err != nil {
+	indexPath := seriesIndex.path + ".compacting"
+	if err := c.compactIndexTo(seriesIndex, seriesN, segments, indexPath); err != nil {
 		return err
 	}
 
 	// Swap compacted index under lock & replay since compaction.
 	if err := func() error {
-		p.mu.Lock()
-		defer p.mu.Unlock()
+		seriesPartition.mu.Lock()
+		defer seriesPartition.mu.Unlock()
 
 		// Reopen index with new file.
-		if err := p.index.Close(); err != nil {
+		if err := seriesPartition.index.Close(); err != nil {
 			return err
-		} else if err := os.Rename(indexPath, index.path); err != nil {
+		} else if err := os.Rename(indexPath, seriesIndex.path); err != nil {
 			return err
-		} else if err := p.index.Open(); err != nil {
+		} else if err := seriesPartition.index.Open(); err != nil {
 			return err
 		}
 
 		// Replay new entries.
-		if err := p.index.Recover(p.segments); err != nil {
+		if err := seriesPartition.index.Recover(seriesPartition.segments); err != nil {
 			return err
 		}
 		return nil

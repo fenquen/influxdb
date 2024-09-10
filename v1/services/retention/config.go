@@ -10,7 +10,7 @@ import (
 // Config represents the configuration for the retention service.
 type Config struct {
 	Enabled       bool          `toml:"enabled"`
-	CheckInterval toml.Duration `toml:"check-interval"`
+	CheckInterval toml.Duration `toml:"check-interval"` // 对应 storage-retention-check-interval
 }
 
 // NewConfig returns an instance of Config with defaults.

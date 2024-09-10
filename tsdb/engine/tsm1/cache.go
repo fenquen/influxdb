@@ -167,7 +167,7 @@ type Cache struct {
 
 	mu      sync.RWMutex
 	store   storer
-	maxSize uint64
+	maxSize uint64 // 来自配置 storage-cache-max-memory-size
 
 	// snapshots are the cache objects that are currently being written to tsm files
 	// they're kept in memory while flushing so they can be queried along with the cache.
@@ -288,8 +288,8 @@ func newCacheMetrics(tags tsdb.EngineTags) *cacheMetrics {
 	}
 }
 
-// init initializes the cache and allocates the underlying store.  Once initialized,
-// the store re-used until Freed.
+// initializes the cache and allocates the underlying store.
+// Once initialized, the store re-used until Freed.
 func (cache *Cache) init() {
 	if !atomic.CompareAndSwapUint32(&cache.initializedCount, 0, 1) {
 		return
@@ -311,7 +311,7 @@ func (cache *Cache) Free() {
 	cache.mu.Unlock()
 }
 
-// WriteMulti writes the map of keys and associated values to the cache. This
+// writes the map of keys and associated values to the cache. This
 // function is goroutine-safe. It returns an error if the cache will exceeded
 // its max size by adding the new values.  The write attempts to write as many
 // values as possible.  If one key fails, the others can still succeed and an
@@ -370,7 +370,7 @@ func (cache *Cache) WriteMulti(values map[string][]Value) error {
 	return werr
 }
 
-// Snapshot takes a snapshot of the current cache, adds it to the slice of caches that
+// takes a snapshot of the current cache, adds it to the slice of caches that
 // are being flushed, and resets the current cache with new values.
 func (cache *Cache) Snapshot() (*Cache, error) {
 	cache.init()
@@ -403,7 +403,7 @@ func (cache *Cache) Snapshot() (*Cache, error) {
 		return cache.snapshot, nil
 	}
 
-	cache.snapshot.store, cache.store = cache.store, cache.snapshot.store
+	cache.snapshot.store, cache.store = cache.store, cache.snapshot.store // 互换底部的store 想到了leveldb的memtable和immutable memtable
 	snapshotSize := cache.Size()
 
 	// Save the size of the snapshot on the snapshot cache
@@ -603,12 +603,12 @@ func (cache *Cache) Values(key []byte) Values {
 	return values
 }
 
-// Delete removes all values for the given keys from the cache.
+// removes all values for the given keys from the cache.
 func (cache *Cache) Delete(keys [][]byte) {
 	cache.DeleteRange(keys, math.MinInt64, math.MaxInt64)
 }
 
-// DeleteRange removes the values for all keys containing points
+// removes the values for all keys containing points
 // with timestamps between between min and max from the cache.
 //
 // TODO(edd): Lock usage could possibly be optimised if necessary.
@@ -675,8 +675,8 @@ func (cache *Cache) ApplyEntryFn(f func(key []byte, entry *entry) error) error {
 	return store.applySerial(f)
 }
 
-// CacheLoader processes a set of WAL segment files, and loads a cache with the data
-// contained within those files.  Processing of the supplied files take place in the
+// processes a set of WAL segment files, and loads a cache with the data contained within those files
+// Processing of the supplied files take place in the
 // order they exist in the files slice.
 type CacheLoader struct {
 	files []string
@@ -684,7 +684,7 @@ type CacheLoader struct {
 	Logger *zap.Logger
 }
 
-// NewCacheLoader returns a new instance of a CacheLoader.
+// returns a new instance of a CacheLoader.
 func NewCacheLoader(files []string) *CacheLoader {
 	return &CacheLoader{
 		files:  files,
@@ -692,27 +692,27 @@ func NewCacheLoader(files []string) *CacheLoader {
 	}
 }
 
-// Load returns a cache loaded with the data contained within the segment files.
+// returns a cache loaded with the data contained within the segment files.
 // If, during reading of a segment file, corruption is encountered, that segment
 // file is truncated up to and including the last valid byte, and processing
 // continues with the next segment file.
-func (cl *CacheLoader) Load(cache *Cache) error {
+func (cacheLoader *CacheLoader) Load(cache *Cache) error {
 
 	var walSegmentReader *WALSegmentReader
-	for _, fn := range cl.files {
+	for _, walFilePath := range cacheLoader.files {
 		if err := func() error {
-			f, err := os.OpenFile(fn, os.O_CREATE|os.O_RDWR, 0666)
+			walFile, err := os.OpenFile(walFilePath, os.O_CREATE|os.O_RDWR, 0666)
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer walFile.Close()
 
 			// Log some information about the segments.
-			stat, err := os.Stat(f.Name())
+			stat, err := os.Stat(walFile.Name())
 			if err != nil {
 				return err
 			}
-			cl.Logger.Info("Reading file", zap.String("path", f.Name()), zap.Int64("size", stat.Size()))
+			cacheLoader.Logger.Info("Reading file", zap.String("path", walFile.Name()), zap.Int64("size", stat.Size()))
 
 			// Nothing to read, skip it
 			if stat.Size() == 0 {
@@ -720,18 +720,18 @@ func (cl *CacheLoader) Load(cache *Cache) error {
 			}
 
 			if walSegmentReader == nil {
-				walSegmentReader = NewWALSegmentReader(f)
+				walSegmentReader = NewWALSegmentReader(walFile)
 				defer walSegmentReader.Close()
 			} else {
-				walSegmentReader.Reset(f)
+				walSegmentReader.Reset(walFile)
 			}
 
 			for walSegmentReader.Next() {
 				entry, err := walSegmentReader.Read()
 				if err != nil {
 					n := walSegmentReader.Count()
-					cl.Logger.Info("File corrupt", zap.Error(err), zap.String("path", f.Name()), zap.Int64("pos", n))
-					if err := f.Truncate(n); err != nil {
+					cacheLoader.Logger.Info("File corrupt", zap.Error(err), zap.String("path", walFile.Name()), zap.Int64("pos", n))
+					if err := walFile.Truncate(n); err != nil {
 						return err
 					}
 					break
@@ -758,8 +758,8 @@ func (cl *CacheLoader) Load(cache *Cache) error {
 }
 
 // WithLogger sets the logger on the CacheLoader.
-func (cl *CacheLoader) WithLogger(log *zap.Logger) {
-	cl.Logger = log.With(zap.String("service", "cacheloader"))
+func (cacheLoader *CacheLoader) WithLogger(log *zap.Logger) {
+	cacheLoader.Logger = log.With(zap.String("service", "cacheloader"))
 }
 
 func (cache *Cache) LastWriteTime() time.Time {

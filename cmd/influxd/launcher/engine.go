@@ -44,7 +44,7 @@ type Engine interface {
 var _ Engine = (*TemporaryEngine)(nil)
 var _ http.Flusher = (*TemporaryEngine)(nil)
 
-// TemporaryEngine creates a time-series storage engine backed
+// creates a time-series storage engine backed
 // by a temporary directory that is removed on Close.
 type TemporaryEngine struct {
 	path    string

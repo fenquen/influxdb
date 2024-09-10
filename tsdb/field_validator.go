@@ -15,18 +15,18 @@ const MaxFieldValueLength = 1048576
 //   - the point has fields that are too long
 func ValidateFields(mf *MeasurementFields, point models.Point, skipSizeValidation bool) error {
 	pointSize := point.StringSize()
-	iter := point.FieldIterator()
-	for iter.Next() {
+	fieldIterator := point.FieldIterator()
+	for fieldIterator.Next() {
 		if !skipSizeValidation {
 			// Check for size of field too large. Note it is much cheaper to check the whole point size
 			// than checking the StringValue size (StringValue potentially takes an allocation if it must
 			// unescape the string, and must at least parse the string)
-			if pointSize > MaxFieldValueLength && iter.Type() == models.String {
-				if sz := len(iter.StringValue()); sz > MaxFieldValueLength {
+			if pointSize > MaxFieldValueLength && fieldIterator.Type() == models.String {
+				if sz := len(fieldIterator.StringValue()); sz > MaxFieldValueLength {
 					return PartialWriteError{
 						Reason: fmt.Sprintf(
 							"input field \"%s\" on measurement \"%s\" is too long, %d > %d",
-							iter.FieldKey(), point.Name(), sz, MaxFieldValueLength),
+							fieldIterator.FieldKey(), point.Name(), sz, MaxFieldValueLength),
 						Dropped: 1,
 					}
 				}
@@ -34,17 +34,17 @@ func ValidateFields(mf *MeasurementFields, point models.Point, skipSizeValidatio
 		}
 
 		// Skip fields name "time", they are illegal.
-		if bytes.Equal(iter.FieldKey(), timeBytes) {
+		if bytes.Equal(fieldIterator.FieldKey(), timeBytes) {
 			continue
 		}
 
 		// If the fields is not present, there cannot be a conflict.
-		f := mf.FieldBytes(iter.FieldKey())
+		f := mf.FieldBytes(fieldIterator.FieldKey())
 		if f == nil {
 			continue
 		}
 
-		dataType := dataTypeFromModelsFieldType(iter.Type())
+		dataType := dataTypeFromModelsFieldType(fieldIterator.Type())
 		if dataType == influxql.Unknown {
 			continue
 		}
@@ -54,7 +54,7 @@ func ValidateFields(mf *MeasurementFields, point models.Point, skipSizeValidatio
 			return PartialWriteError{
 				Reason: fmt.Sprintf(
 					"%s: input field \"%s\" on measurement \"%s\" is type %s, already exists as type %s",
-					ErrFieldTypeConflict, iter.FieldKey(), point.Name(), dataType, f.Type),
+					ErrFieldTypeConflict, fieldIterator.FieldKey(), point.Name(), dataType, f.Type),
 				Dropped: 1,
 			}
 		}

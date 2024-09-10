@@ -187,7 +187,7 @@ type EngineOptions struct {
 	MetricsDisabled   bool
 }
 
-// NewEngineOptions constructs an EngineOptions object with safe default values.
+// constructs an EngineOptions object with safe default values.
 // This should only be used in tests; production environments should read from a config file.
 func NewEngineOptions() EngineOptions {
 	return EngineOptions{

@@ -150,26 +150,26 @@ func NewEngine(path string, c Config, options ...Option) *Engine {
 }
 
 // WithLogger sets the logger on the Store. It must be called before Open.
-func (e *Engine) WithLogger(log *zap.Logger) {
-	e.logger = log.With(zap.String("service", "storage-engine"))
+func (engine *Engine) WithLogger(log *zap.Logger) {
+	engine.logger = log.With(zap.String("service", "storage-engine"))
 
-	e.tsdbStore.WithLogger(e.logger)
-	if pw, ok := e.pointsWriter.(*coordinator.PointsWriter); ok {
-		pw.WithLogger(e.logger)
+	engine.tsdbStore.WithLogger(engine.logger)
+	if pw, ok := engine.pointsWriter.(*coordinator.PointsWriter); ok {
+		pw.WithLogger(engine.logger)
 	}
 
-	if e.retentionService != nil {
-		e.retentionService.WithLogger(log)
+	if engine.retentionService != nil {
+		engine.retentionService.WithLogger(log)
 	}
 
-	if e.precreatorService != nil {
-		e.precreatorService.WithLogger(log)
+	if engine.precreatorService != nil {
+		engine.precreatorService.WithLogger(log)
 	}
 }
 
 // PrometheusCollectors returns all the prometheus collectors associated with
 // the engine and its components.
-func (e *Engine) PrometheusCollectors() []prometheus.Collector {
+func (engine *Engine) PrometheusCollectors() []prometheus.Collector {
 	var metrics []prometheus.Collector
 	metrics = append(metrics, tsm1.PrometheusCollectors()...)
 	metrics = append(metrics, coordinator.PrometheusCollectors()...)
@@ -181,74 +181,74 @@ func (e *Engine) PrometheusCollectors() []prometheus.Collector {
 
 // Open opens the store and all underlying resources. It returns an error if
 // any of the underlying systems fail to open.
-func (e *Engine) Open(ctx context.Context) (err error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+func (engine *Engine) Open(ctx context.Context) (err error) {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 
-	if e.closing != nil {
+	if engine.closing != nil {
 		return nil // Already open
 	}
 
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	if err := e.tsdbStore.Open(ctx); err != nil {
+	if err := engine.tsdbStore.Open(ctx); err != nil {
 		return err
 	}
 
-	if err := e.retentionService.Open(ctx); err != nil {
+	if err := engine.retentionService.Open(ctx); err != nil {
 		return err
 	}
 
-	if err := e.precreatorService.Open(ctx); err != nil {
+	if err := engine.precreatorService.Open(ctx); err != nil {
 		return err
 	}
 
-	e.closing = make(chan struct{})
+	engine.closing = make(chan struct{})
 
 	return nil
 }
 
 // EnableCompactions allows the series file, index, & underlying engine to compact.
-func (e *Engine) EnableCompactions() {
+func (engine *Engine) EnableCompactions() {
 }
 
 // DisableCompactions disables compactions in the series file, index, & engine.
-func (e *Engine) DisableCompactions() {
+func (engine *Engine) DisableCompactions() {
 }
 
 // Close closes the store and all underlying resources. It returns an error if
 // any of the underlying systems fail to close.
-func (e *Engine) Close() error {
-	e.mu.RLock()
-	if e.closing == nil {
-		e.mu.RUnlock()
+func (engine *Engine) Close() error {
+	engine.mu.RLock()
+	if engine.closing == nil {
+		engine.mu.RUnlock()
 		// Unusual if an engine is closed more than once, so note it.
-		e.logger.Info("Close() called on already-closed engine")
+		engine.logger.Info("Close() called on already-closed engine")
 		return nil // Already closed
 	}
 
-	close(e.closing)
-	e.mu.RUnlock()
+	close(engine.closing)
+	engine.mu.RUnlock()
 
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.closing = nil
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.closing = nil
 
 	var retErr error
-	if err := e.precreatorService.Close(); err != nil {
+	if err := engine.precreatorService.Close(); err != nil {
 		retErr = multierr.Append(retErr, fmt.Errorf("error closing shard precreator service: %w", err))
 	}
 
-	if err := e.retentionService.Close(); err != nil {
+	if err := engine.retentionService.Close(); err != nil {
 		retErr = multierr.Append(retErr, fmt.Errorf("error closing retention service: %w", err))
 	}
 
-	if err := e.tsdbStore.Close(); err != nil {
+	if err := engine.tsdbStore.Close(); err != nil {
 		retErr = multierr.Append(retErr, fmt.Errorf("error closing TSDB store: %w", err))
 	}
 
-	if err := e.pointsWriter.Close(); err != nil {
+	if err := engine.pointsWriter.Close(); err != nil {
 		retErr = multierr.Append(retErr, fmt.Errorf("error closing points writer: %w", err))
 	}
 	return retErr
@@ -262,23 +262,23 @@ func (e *Engine) Close() error {
 // Rosalie was here lockdown 2020
 //
 // Appropriate errors are returned in those cases.
-func (e *Engine) WritePoints(ctx context.Context, orgID platform.ID, bucketID platform.ID, points []models.Point) error {
+func (engine *Engine) WritePoints(ctx context.Context, orgID platform.ID, bucketID platform.ID, points []models.Point) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
 	//TODO - remember to add back unicode validation...
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 
-	if e.closing == nil {
+	if engine.closing == nil {
 		return ErrEngineClosed
 	}
 
-	return e.pointsWriter.WritePoints(ctx, bucketID.String(), meta.DefaultRetentionPolicyName, models.ConsistencyLevelAll, &meta.UserInfo{}, points)
+	return engine.pointsWriter.WritePoints(ctx, bucketID.String(), meta.DefaultRetentionPolicyName, models.ConsistencyLevelAll, &meta.UserInfo{}, points)
 }
 
-func (e *Engine) CreateBucket(ctx context.Context, b *influxdb.Bucket) (err error) {
+func (engine *Engine) CreateBucket(ctx context.Context, b *influxdb.Bucket) (err error) {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
@@ -288,14 +288,14 @@ func (e *Engine) CreateBucket(ctx context.Context, b *influxdb.Bucket) (err erro
 		ShardGroupDuration: b.ShardGroupDuration,
 	}
 
-	if _, err = e.metaClient.CreateDatabaseWithRetentionPolicy(b.ID.String(), &spec); err != nil {
+	if _, err = engine.metaClient.CreateDatabaseWithRetentionPolicy(b.ID.String(), &spec); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (e *Engine) UpdateBucketRetentionPolicy(ctx context.Context, bucketID platform.ID, upd *influxdb.BucketUpdate) error {
+func (engine *Engine) UpdateBucketRetentionPolicy(ctx context.Context, bucketID platform.ID, upd *influxdb.BucketUpdate) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
@@ -304,7 +304,7 @@ func (e *Engine) UpdateBucketRetentionPolicy(ctx context.Context, bucketID platf
 		ShardGroupDuration: upd.ShardGroupDuration,
 	}
 
-	err := e.metaClient.UpdateRetentionPolicy(bucketID.String(), meta.DefaultRetentionPolicyName, &rpu, true)
+	err := engine.metaClient.UpdateRetentionPolicy(bucketID.String(), meta.DefaultRetentionPolicyName, &rpu, true)
 	if err == meta.ErrIncompatibleDurations {
 		err = &errors2.Error{
 			Code: errors2.EUnprocessableEntity,
@@ -315,87 +315,87 @@ func (e *Engine) UpdateBucketRetentionPolicy(ctx context.Context, bucketID platf
 }
 
 // DeleteBucket deletes an entire bucket from the storage engine.
-func (e *Engine) DeleteBucket(ctx context.Context, orgID, bucketID platform.ID) error {
+func (engine *Engine) DeleteBucket(ctx context.Context, orgID, bucketID platform.ID) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
-	err := e.tsdbStore.DeleteDatabase(bucketID.String())
+	err := engine.tsdbStore.DeleteDatabase(bucketID.String())
 	if err != nil {
 		return err
 	}
-	return e.metaClient.DropDatabase(bucketID.String())
+	return engine.metaClient.DropDatabase(bucketID.String())
 }
 
 // DeleteBucketRangePredicate deletes data within a bucket from the storage engine. Any data
 // deleted must be in [min, max], and the key must match the predicate if provided.
-func (e *Engine) DeleteBucketRangePredicate(ctx context.Context, orgID, bucketID platform.ID, min, max int64, pred influxdb.Predicate, measurement influxql.Expr) error {
+func (engine *Engine) DeleteBucketRangePredicate(ctx context.Context, orgID, bucketID platform.ID, min, max int64, pred influxdb.Predicate, measurement influxql.Expr) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if e.closing == nil {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	if engine.closing == nil {
 		return ErrEngineClosed
 	}
-	return e.tsdbStore.DeleteSeriesWithPredicate(ctx, bucketID.String(), min, max, pred, measurement)
+	return engine.tsdbStore.DeleteSeriesWithPredicate(ctx, bucketID.String(), min, max, pred, measurement)
 }
 
 // RLockKVStore locks the KV store as well as the engine in preparation for doing a backup.
-func (e *Engine) RLockKVStore() {
-	e.mu.RLock()
-	e.metaClient.RLock()
+func (engine *Engine) RLockKVStore() {
+	engine.mu.RLock()
+	engine.metaClient.RLock()
 }
 
 // RUnlockKVStore unlocks the KV store & engine, intended to be used after a backup is complete.
-func (e *Engine) RUnlockKVStore() {
-	e.mu.RUnlock()
-	e.metaClient.RUnlock()
+func (engine *Engine) RUnlockKVStore() {
+	engine.mu.RUnlock()
+	engine.metaClient.RUnlock()
 }
 
-func (e *Engine) BackupKVStore(ctx context.Context, w io.Writer) error {
+func (engine *Engine) BackupKVStore(ctx context.Context, w io.Writer) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	if e.closing == nil {
+	if engine.closing == nil {
 		return ErrEngineClosed
 	}
 
-	return e.metaClient.Backup(ctx, w)
+	return engine.metaClient.Backup(ctx, w)
 }
 
-func (e *Engine) BackupShard(ctx context.Context, w io.Writer, shardID uint64, since time.Time) error {
+func (engine *Engine) BackupShard(ctx context.Context, w io.Writer, shardID uint64, since time.Time) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 
-	if e.closing == nil {
+	if engine.closing == nil {
 		return ErrEngineClosed
 	}
 
-	return e.tsdbStore.BackupShard(shardID, since, w)
+	return engine.tsdbStore.BackupShard(shardID, since, w)
 }
 
-func (e *Engine) RestoreKVStore(ctx context.Context, r io.Reader) error {
+func (engine *Engine) RestoreKVStore(ctx context.Context, r io.Reader) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 
-	if e.closing == nil {
+	if engine.closing == nil {
 		return ErrEngineClosed
 	}
 
 	// Replace KV store data and remove all existing shard data.
-	if err := e.metaClient.Restore(ctx, r); err != nil {
+	if err := engine.metaClient.Restore(ctx, r); err != nil {
 		return err
-	} else if err := e.tsdbStore.DeleteShards(); err != nil {
+	} else if err := engine.tsdbStore.DeleteShards(); err != nil {
 		return err
 	}
 
 	// Create new shards based on the restored KV data.
-	data := e.metaClient.Data()
+	data := engine.metaClient.Data()
 	for _, dbi := range data.Databases {
 		for _, rpi := range dbi.RetentionPolicies {
 			for _, sgi := range rpi.ShardGroups {
@@ -404,7 +404,7 @@ func (e *Engine) RestoreKVStore(ctx context.Context, r io.Reader) error {
 				}
 
 				for _, sh := range sgi.Shards {
-					if err := e.tsdbStore.CreateShard(ctx, dbi.Name, rpi.Name, sh.ID, true); err != nil {
+					if err := engine.tsdbStore.CreateShard(ctx, dbi.Name, rpi.Name, sh.ID, true); err != nil {
 						return err
 					}
 				}
@@ -415,14 +415,14 @@ func (e *Engine) RestoreKVStore(ctx context.Context, r io.Reader) error {
 	return nil
 }
 
-func (e *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []byte) (map[uint64]uint64, error) {
+func (engine *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []byte) (map[uint64]uint64, error) {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 
-	if e.closing == nil {
+	if engine.closing == nil {
 		return nil, ErrEngineClosed
 	}
 
@@ -431,7 +431,7 @@ func (e *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []byte) 
 		return nil, err
 	}
 
-	data := e.metaClient.Data()
+	data := engine.metaClient.Data()
 	dbi := data.Database(id.String())
 	if dbi == nil {
 		return nil, fmt.Errorf("bucket dbi for %q not found during restore", newDBI.Name)
@@ -458,7 +458,7 @@ func (e *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []byte) 
 	}
 
 	// Update data.
-	if err := e.metaClient.SetData(&data); err != nil {
+	if err := engine.metaClient.SetData(&data); err != nil {
 		return nil, err
 	}
 
@@ -469,7 +469,7 @@ func (e *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []byte) 
 		}
 
 		for _, sh := range sgi.Shards {
-			if err := e.tsdbStore.CreateShard(ctx, dbi.Name, rpi.Name, sh.ID, true); err != nil {
+			if err := engine.tsdbStore.CreateShard(ctx, dbi.Name, rpi.Name, sh.ID, true); err != nil {
 				return nil, err
 			}
 		}
@@ -478,29 +478,29 @@ func (e *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []byte) 
 	return shardIDMap, nil
 }
 
-func (e *Engine) RestoreShard(ctx context.Context, shardID uint64, r io.Reader) error {
+func (engine *Engine) RestoreShard(ctx context.Context, shardID uint64, r io.Reader) error {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	e.mu.RLock()
-	defer e.mu.RUnlock()
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 
-	if e.closing == nil {
+	if engine.closing == nil {
 		return ErrEngineClosed
 	}
 
-	return e.tsdbStore.RestoreShard(ctx, shardID, r)
+	return engine.tsdbStore.RestoreShard(ctx, shardID, r)
 }
 
 // SeriesCardinality returns the number of series in the engine.
-func (e *Engine) SeriesCardinality(ctx context.Context, bucketID platform.ID) int64 {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	if e.closing == nil {
+func (engine *Engine) SeriesCardinality(ctx context.Context, bucketID platform.ID) int64 {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	if engine.closing == nil {
 		return 0
 	}
 
-	n, err := e.tsdbStore.SeriesCardinality(ctx, bucketID.String())
+	n, err := engine.tsdbStore.SeriesCardinality(ctx, bucketID.String())
 	if err != nil {
 		return 0
 	}
@@ -508,14 +508,14 @@ func (e *Engine) SeriesCardinality(ctx context.Context, bucketID platform.ID) in
 }
 
 // Path returns the path of the engine's base directory.
-func (e *Engine) Path() string {
-	return e.path
+func (engine *Engine) Path() string {
+	return engine.path
 }
 
-func (e *Engine) TSDBStore() TSDBStore {
-	return e.tsdbStore
+func (engine *Engine) TSDBStore() TSDBStore {
+	return engine.tsdbStore
 }
 
-func (e *Engine) MetaClient() MetaClient {
-	return e.metaClient
+func (engine *Engine) MetaClient() MetaClient {
+	return engine.metaClient
 }
