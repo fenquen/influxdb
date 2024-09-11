@@ -27,7 +27,7 @@ const (
 	// snapshot the cache and write it to a TSM file, freeing up memory
 	DefaultCacheSnapshotMemorySize = 25 * 1024 * 1024 // 25MB 对应 storage-cache-snapshot-memory-size
 
-	// DefaultCacheSnapshotWriteColdDuration is the length of time at which
+	// the length of time at which
 	// the engine will snapshot the cache and write it to a new TSM file if
 	// the shard hasn't received writes or deletes
 	DefaultCacheSnapshotWriteColdDuration = 10 * time.Minute

@@ -439,7 +439,7 @@ func (wal *WAL) Remove(files []string) error {
 	return nil
 }
 
-// LastWriteTime is the last time anything was written to the WAL.
+//  the last time anything was written to the WAL.
 func (wal *WAL) LastWriteTime() time.Time {
 	wal.mu.RLock()
 	defer wal.mu.RUnlock()
