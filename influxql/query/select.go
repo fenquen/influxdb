@@ -111,24 +111,24 @@ type PreparedStatement interface {
 
 // Prepare will compile the statement with the default compile options and
 // then prepare the query.
-func Prepare(ctx context.Context, stmt *influxql.SelectStatement, shardMapper ShardMapper, opt SelectOptions) (PreparedStatement, error) {
-	c, err := Compile(stmt, CompileOptions{})
+func Prepare(ctx context.Context, stmt *influxql.SelectStatement, shardMapper ShardMapper, selectOptions SelectOptions) (PreparedStatement, error) {
+	statement, err := Compile(stmt, CompileOptions{})
 	if err != nil {
 		return nil, err
 	}
-	return c.Prepare(ctx, shardMapper, opt)
+	return statement.Prepare(ctx, shardMapper, selectOptions)
 }
 
 // Select compiles, prepares, and then initiates execution of the query using the
 // default compile options.
 func Select(ctx context.Context, stmt *influxql.SelectStatement, shardMapper ShardMapper, opt SelectOptions) (Cursor, error) {
-	s, err := Prepare(ctx, stmt, shardMapper, opt)
+	preparedStmt, err := Prepare(ctx, stmt, shardMapper, opt)
 	if err != nil {
 		return nil, err
 	}
 	// Must be deferred so it runs after Select.
-	defer s.Close()
-	return s.Select(ctx)
+	defer preparedStmt.Close()
+	return preparedStmt.Select(ctx)
 }
 
 type preparedStatement struct {
@@ -167,7 +167,7 @@ func (p *preparedStatement) Close() error {
 	return p.ic.Close()
 }
 
-// buildExprIterator creates an iterator for an expression.
+// creates an iterator for an expression.
 func buildExprIterator(ctx context.Context, expr influxql.Expr, ic IteratorCreator, sources influxql.Sources, opt IteratorOptions, selector, writeMode bool) (Iterator, error) {
 	opt.Expr = expr
 	b := exprIteratorBuilder{

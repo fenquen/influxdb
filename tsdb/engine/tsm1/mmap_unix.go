@@ -27,7 +27,7 @@ func munmap(b []byte) (err error) {
 	return unix.Munmap(b)
 }
 
-// madviseWillNeed gives the kernel the mmap madvise value MADV_WILLNEED, hinting
+// gives the kernel the mmap madvise value MADV_WILLNEED, hinting
 // that we plan on using the provided buffer in the near future.
 func madviseWillNeed(b []byte) error {
 	return madvise(b, syscall.MADV_WILLNEED)

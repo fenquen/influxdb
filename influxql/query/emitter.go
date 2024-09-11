@@ -6,7 +6,7 @@ import (
 
 // Emitter reads from a cursor into rows.
 type Emitter struct {
-	cur       Cursor
+	cursor    Cursor
 	chunkSize int
 
 	series  Series
@@ -21,29 +21,29 @@ func NewEmitter(cur Cursor, chunkSize int) *Emitter {
 		columns[i] = col.Val
 	}
 	return &Emitter{
-		cur:       cur,
+		cursor:    cur,
 		chunkSize: chunkSize,
 		columns:   columns,
 	}
 }
 
 // Close closes the underlying iterators.
-func (e *Emitter) Close() error {
-	return e.cur.Close()
+func (emitter *Emitter) Close() error {
+	return emitter.cursor.Close()
 }
 
-// Emit returns the next row from the iterators.
-func (e *Emitter) Emit() (*models.Row, bool, error) {
+// returns the next row from the iterators.
+func (emitter *Emitter) Emit() (*models.Row, bool, error) {
 	// Continually read from the cursor until it is exhausted.
 	for {
 		// Scan the next row. If there are no rows left, return the current row.
 		var row Row
-		if !e.cur.Scan(&row) {
-			if err := e.cur.Err(); err != nil {
+		if !emitter.cursor.Scan(&row) {
+			if err := emitter.cursor.Err(); err != nil {
 				return nil, false, err
 			}
-			r := e.row
-			e.row = nil
+			r := emitter.row
+			emitter.row = nil
 			return r, false, nil
 		}
 
@@ -51,31 +51,31 @@ func (e *Emitter) Emit() (*models.Row, bool, error) {
 		// If the name and tags match the existing row, append to that row if
 		// the number of values doesn't exceed the chunk size.
 		// Otherwise return existing row and add values to next emitted row.
-		if e.row == nil {
-			e.createRow(row.Series, row.Values)
-		} else if e.series.SameSeries(row.Series) {
-			if e.chunkSize > 0 && len(e.row.Values) >= e.chunkSize {
-				r := e.row
+		if emitter.row == nil {
+			emitter.createRow(row.Series, row.Values)
+		} else if emitter.series.SameSeries(row.Series) {
+			if emitter.chunkSize > 0 && len(emitter.row.Values) >= emitter.chunkSize {
+				r := emitter.row
 				r.Partial = true
-				e.createRow(row.Series, row.Values)
+				emitter.createRow(row.Series, row.Values)
 				return r, true, nil
 			}
-			e.row.Values = append(e.row.Values, row.Values)
+			emitter.row.Values = append(emitter.row.Values, row.Values)
 		} else {
-			r := e.row
-			e.createRow(row.Series, row.Values)
+			r := emitter.row
+			emitter.createRow(row.Series, row.Values)
 			return r, true, nil
 		}
 	}
 }
 
 // createRow creates a new row attached to the emitter.
-func (e *Emitter) createRow(series Series, values []interface{}) {
-	e.series = series
-	e.row = &models.Row{
+func (emitter *Emitter) createRow(series Series, values []interface{}) {
+	emitter.series = series
+	emitter.row = &models.Row{
 		Name:    series.Name,
 		Tags:    series.Tags.KeyValues(),
-		Columns: e.columns,
+		Columns: emitter.columns,
 		Values:  [][]interface{}{values},
 	}
 }

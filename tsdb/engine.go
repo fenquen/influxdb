@@ -113,7 +113,7 @@ func RegisteredEngines() []string {
 	return a
 }
 
-// NewEngine returns an instance of an engine based on its format.
+// return an instance of an engine based on its format.
 // If the path does not exist then the DefaultFormat is used.
 func NewEngine(id uint64, i Index, path string, walPath string, sfile *SeriesFile, options EngineOptions) (Engine, error) {
 	// Create a new engine

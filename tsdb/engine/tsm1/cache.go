@@ -167,7 +167,7 @@ type Cache struct {
 
 	mu      sync.RWMutex
 	store   storer
-	maxSize uint64 // 来自配置 storage-cache-max-memory-size
+	maxSize uint64 // 对应 storage-cache-max-memory-size
 
 	// snapshots are the cache objects that are currently being written to tsm files
 	// they're kept in memory while flushing so they can be queried along with the cache.

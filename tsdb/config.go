@@ -80,20 +80,20 @@ type Config struct {
 	// General WAL configuration options
 	WALDir string `toml:"wal-dir"`
 
-	// WALMaxConcurrentWrites sets the max number of WAL writes that can be attempted at one time.
+	// set the max number of WAL writes that can be attempted at one time.
 	// In reality only one write to disk can run at a time, but we allow the preceding encoding steps
 	// to run concurrently. This can cause allocations to increase quickly when writing to a slow disk.
 	// Set to 0 to use the default (<nprocs> * 2).
-	WALMaxConcurrentWrites int `toml:"wal-max-concurrent-writes"`
+	WALMaxConcurrentWrites int `toml:"wal-max-concurrent-writes"` // 对应 storage-wal-max-concurrent-writes
 
-	// WALMaxWriteDelay is the max amount of time the WAL will wait to begin a write when there are
+	// the max amount of time the WAL will wait to begin a write when there are
 	// already WALMaxConcurrentWrites in progress. A value of 0 disables any timeout.
-	WALMaxWriteDelay time.Duration `toml:"wal-max-write-delay"`
+	WALMaxWriteDelay time.Duration `toml:"wal-max-write-delay"` // 对应 storage-wal-max-write-delay
 
-	// WALFsyncDelay is the amount of time that a write will wait before fsyncing.  A duration
+	// the amount of time that a write will wait before fsyncing.  A duration
 	// greater than 0 can be used to batch up multiple fsync calls.  This is useful for slower
 	// disks or when WAL write contention is seen.  A value of 0 fsyncs every write to the WAL.
-	WALFsyncDelay toml.Duration `toml:"wal-fsync-delay"`
+	WALFsyncDelay toml.Duration `toml:"wal-fsync-delay"` // 对应 storage-wal-fsync-delay
 
 	// Enables unicode validation on series keys on write.
 	ValidateKeys bool `toml:"validate-keys"`
@@ -120,16 +120,16 @@ type Config struct {
 	// not affected by this limit.  A value of 0 limits compactions to runtime.GOMAXPROCS(0).
 	MaxConcurrentCompactions int `toml:"max-concurrent-compactions"` // 对应 storage-max-concurrent-compactions
 
-	// MaxIndexLogFileSize is the threshold, in bytes, when an index write-ahead log file will
+	// the threshold, in bytes, when an index write-ahead log file will
 	// compact into an index file. Lower sizes will cause log files to be compacted more quickly
 	// and result in lower heap usage at the expense of write throughput. Higher sizes will
 	// be compacted less frequently, store more series in-memory, and provide higher write throughput.
 	MaxIndexLogFileSize toml.Size `toml:"max-index-log-file-size"` // 对应 storage-max-index-log-file-size
 
-	// SeriesIDSetCacheSize is the number items that can be cached within the TSI index. TSI caching can help
+	// the number items that can be cached within the TSI index. TSI caching can help
 	// with query performance when the same tag key/value predicates are commonly used on queries.
 	// Setting series-id-set-cache-size to 0 disables the cache.
-	SeriesIDSetCacheSize int `toml:"series-id-set-cache-size"`
+	SeriesIDSetCacheSize int `toml:"series-id-set-cache-size"` // 对应 storage-series-id-set-cache-size
 
 	// the maximum number of concurrent seriesFile snapshot compactions
 	// that can be running at one time across all series partitions in a database. Snapshots scheduled
@@ -140,11 +140,11 @@ type Config struct {
 
 	TraceLoggingEnabled bool `toml:"trace-logging-enabled"`
 
-	// TSMWillNeed controls whether we hint to the kernel that we intend to
+	// controls whether we hint to the kernel that we intend to
 	// page in mmap'd sections of TSM files. This setting defaults to off, as it has
 	// been found to be problematic in some cases. It may help users who have
 	// slow disks.
-	TSMWillNeed bool `toml:"tsm-use-madv-willneed"`
+	TSMWillNeed bool `toml:"tsm-use-madv-willneed"` // 对应 storage-tsm-use-madv-willneed
 }
 
 // NewConfig returns the default configuration for tsdb.

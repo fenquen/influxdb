@@ -212,16 +212,16 @@ func (seriesFile *SeriesFile) IsDeleted(id uint64) bool {
 	return p.IsDeleted(id)
 }
 
-// SeriesKey returns the series key for a given id.
+// return the series key for a given id.
 func (seriesFile *SeriesFile) SeriesKey(id uint64) []byte {
 	if id == 0 {
 		return nil
 	}
-	p := seriesFile.SeriesIDPartition(id)
-	if p == nil {
+	partition := seriesFile.SeriesIDPartition(id)
+	if partition == nil {
 		return nil
 	}
-	return p.SeriesKey(id)
+	return partition.SeriesKey(id)
 }
 
 // SeriesKeys returns a list of series keys from a list of ids.
@@ -242,7 +242,7 @@ func (seriesFile *SeriesFile) Series(id uint64) ([]byte, models.Tags) {
 	return ParseSeriesKey(key)
 }
 
-// SeriesID return the series id for the series.
+// return the series id for the series.
 func (seriesFile *SeriesFile) SeriesID(name []byte, tags models.Tags, buf []byte) uint64 {
 	key := AppendSeriesKey(buf[:0], name, tags)
 	keyPartition := seriesFile.SeriesKeyPartition(key)
@@ -408,7 +408,7 @@ func ParseSeriesKeyInto(data []byte, dstTags models.Tags) ([]byte, models.Tags) 
 	return parseSeriesKey(data, dstTags)
 }
 
-// parseSeriesKey extracts the name and tags from data, attempting to re-use the
+// extracts name and tags from data, attempting to re-use the
 // provided tags value rather than allocating. The returned tags may have a
 // different length and capacity to those provided.
 func parseSeriesKey(data []byte, dst models.Tags) ([]byte, models.Tags) {

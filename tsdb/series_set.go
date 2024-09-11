@@ -8,7 +8,7 @@ import (
 	"github.com/RoaringBitmap/roaring"
 )
 
-// SeriesIDSet represents a lockable bitmap of series ids.
+// represents a lockable bitmap of series ids.
 type SeriesIDSet struct {
 	sync.RWMutex
 	bitmap *roaring.Bitmap

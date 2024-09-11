@@ -12,7 +12,7 @@ import (
 	"github.com/influxdata/influxdb/v2/influxql/query"
 )
 
-// buildFloatCursor creates a cursor for a float field.
+// create a cursor for a float field.
 func (engine *Engine) buildFloatCursor(ctx context.Context, measurement, seriesKey, field string, opt query.IteratorOptions) floatCursor {
 	key := SeriesFieldKeyBytes(seriesKey, field)
 	cacheValues := engine.Cache.Values(key)

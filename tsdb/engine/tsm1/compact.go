@@ -829,7 +829,7 @@ func (c *Compactor) EnableCompactions() {
 	c.mu.Unlock()
 }
 
-// WriteSnapshot writes a Cache snapshot to one or more new TSM files.
+// write a Cache snapshot to one or more new TSM files.
 func (c *Compactor) WriteSnapshot(cache *Cache, logger *zap.Logger) ([]string, error) {
 	c.mu.RLock()
 	enabled := c.snapshotsEnabled

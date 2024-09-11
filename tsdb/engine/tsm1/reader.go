@@ -24,13 +24,13 @@ var ErrFileInUse = fmt.Errorf("file still in use")
 // uint32 which is an invalid position.  We don't use 0 as 0 is actually a valid position.
 var nilOffset = []byte{255, 255, 255, 255}
 
-// TSMReader is a reader for a TSM file.
+// a reader for a TSM file.
 type TSMReader struct {
 	// refs is the count of active references to this reader.
 	refs   int64
 	refsWG sync.WaitGroup
 
-	madviseWillNeed bool // Hint to the kernel with MADV_WILLNEED.
+	madviseWillNeed bool // Hint to the kernel with MADV_WILLNEED. 对应 storage-tsm-use-madv-willneed
 	mu              sync.RWMutex
 
 	// accessor provides access and decoding of blocks for the reader.
@@ -213,43 +213,43 @@ type tsmReaderOption func(*TSMReader)
 
 // WithMadviseWillNeed is an option for specifying whether to provide a MADV_WILL need hint to the kernel.
 var WithMadviseWillNeed = func(willNeed bool) tsmReaderOption {
-	return func(r *TSMReader) {
-		r.madviseWillNeed = willNeed
+	return func(tsmReader *TSMReader) {
+		tsmReader.madviseWillNeed = willNeed
 	}
 }
 
-// NewTSMReader returns a new TSMReader from the given file.
-func NewTSMReader(f *os.File, options ...tsmReaderOption) (*TSMReader, error) {
-	t := &TSMReader{}
+// returns a new TSMReader from the given file.
+func NewTSMReader(file *os.File, options ...tsmReaderOption) (*TSMReader, error) {
+	tsmReader := &TSMReader{}
 	for _, option := range options {
-		option(t)
+		option(tsmReader)
 	}
 
-	stat, err := f.Stat()
+	stat, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
-	t.size = stat.Size()
-	t.lastModified = stat.ModTime().UnixNano()
-	t.accessor = &mmapAccessor{
-		f:            f,
-		mmapWillNeed: t.madviseWillNeed,
+	tsmReader.size = stat.Size()
+	tsmReader.lastModified = stat.ModTime().UnixNano()
+	tsmReader.accessor = &mmapAccessor{
+		file:         file,
+		mmapWillNeed: tsmReader.madviseWillNeed,
 	}
 
-	index, err := t.accessor.init()
+	index, err := tsmReader.accessor.init()
 	if err != nil {
-		_ = t.accessor.close()
+		_ = tsmReader.accessor.close()
 		return nil, err
 	}
 
-	t.index = index
-	t.tombstoner = NewTombstoner(t.Path(), index.ContainsKey)
+	tsmReader.index = index
+	tsmReader.tombstoner = NewTombstoner(tsmReader.Path(), index.ContainsKey)
 
-	if err := t.applyTombstones(); err != nil {
+	if err := tsmReader.applyTombstones(); err != nil {
 		return nil, err
 	}
 
-	return t, nil
+	return tsmReader, nil
 }
 
 // WithObserver sets the observer for the TSM reader.
@@ -1305,11 +1305,11 @@ type mmapAccessor struct {
 	accessCount uint64 // Counter incremented everytime the mmapAccessor is accessed
 	freeCount   uint64 // Counter to determine whether the accessor can free its resources
 
-	mmapWillNeed bool // If true then mmap advise value MADV_WILLNEED will be provided the kernel for b.
+	mmapWillNeed bool // If true then mmap advise value MADV_WILLNEED will be provided the kernel for b. 对应 storage-tsm-use-madv-willneed
 
 	mu sync.RWMutex
-	b  []byte
-	f  *os.File
+	b    []byte
+	file *os.File
 
 	index *indirectIndex
 }
@@ -1318,22 +1318,22 @@ func (m *mmapAccessor) init() (*indirectIndex, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := verifyVersion(m.f); err != nil {
+	if err := verifyVersion(m.file); err != nil {
 		return nil, err
 	}
 
 	var err error
 
-	if _, err := m.f.Seek(0, 0); err != nil {
+	if _, err := m.file.Seek(0, 0); err != nil {
 		return nil, err
 	}
 
-	stat, err := m.f.Stat()
+	stat, err := m.file.Stat()
 	if err != nil {
 		return nil, err
 	}
 
-	m.b, err = mmap(m.f, 0, int(stat.Size()))
+	m.b, err = mmap(m.file, 0, int(stat.Size()))
 	if err != nil {
 		return nil, err
 	}
@@ -1410,29 +1410,29 @@ func (m *mmapAccessor) rename(path string) error {
 		return err
 	}
 
-	if err := m.f.Close(); err != nil {
+	if err := m.file.Close(); err != nil {
 		return err
 	}
 
-	if err := file.RenameFile(m.f.Name(), path); err != nil {
+	if err := file.RenameFile(m.file.Name(), path); err != nil {
 		return err
 	}
 
-	m.f, err = os.Open(path)
+	m.file, err = os.Open(path)
 	if err != nil {
 		return err
 	}
 
-	if _, err := m.f.Seek(0, 0); err != nil {
+	if _, err := m.file.Seek(0, 0); err != nil {
 		return err
 	}
 
-	stat, err := m.f.Stat()
+	stat, err := m.file.Stat()
 	if err != nil {
 		return err
 	}
 
-	m.b, err = mmap(m.f, 0, int(stat.Size()))
+	m.b, err = mmap(m.file, 0, int(stat.Size()))
 	if err != nil {
 		return err
 	}
@@ -1538,7 +1538,7 @@ func (m *mmapAccessor) readAll(key []byte) ([]Value, error) {
 
 func (m *mmapAccessor) path() string {
 	m.mu.RLock()
-	path := m.f.Name()
+	path := m.file.Name()
 	m.mu.RUnlock()
 	return path
 }
@@ -1557,7 +1557,7 @@ func (m *mmapAccessor) close() error {
 	}
 
 	m.b = nil
-	return m.f.Close()
+	return m.file.Close()
 }
 
 type indexEntries struct {

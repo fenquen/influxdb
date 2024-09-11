@@ -13,7 +13,7 @@ import (
 // Service manages the shard precreation service.
 type Service struct {
 	checkInterval time.Duration
-	advancePeriod time.Duration
+	advancePeriod time.Duration // 对应 storage-shard-precreator-advance-period
 
 	Logger *zap.Logger
 
@@ -35,59 +35,59 @@ func NewService(c Config) *Service {
 }
 
 // WithLogger sets the logger for the service.
-func (s *Service) WithLogger(log *zap.Logger) {
-	s.Logger = log.With(zap.String("service", "shard-precreation"))
+func (service *Service) WithLogger(log *zap.Logger) {
+	service.Logger = log.With(zap.String("service", "shard-precreation"))
 }
 
 // Open starts the precreation service.
-func (s *Service) Open(ctx context.Context) error {
-	if s.cancel != nil {
+func (service *Service) Open(ctx context.Context) error {
+	if service.cancel != nil {
 		return nil
 	}
 
-	s.Logger.Info("Starting precreation service",
-		logger.DurationLiteral("check_interval", s.checkInterval),
-		logger.DurationLiteral("advance_period", s.advancePeriod))
+	service.Logger.Info("Starting precreation service",
+		logger.DurationLiteral("check_interval", service.checkInterval),
+		logger.DurationLiteral("advance_period", service.advancePeriod))
 
-	ctx, s.cancel = context.WithCancel(ctx)
+	ctx, service.cancel = context.WithCancel(ctx)
 
-	s.wg.Add(1)
-	go s.runPrecreation(ctx)
+	service.wg.Add(1)
+	go service.runPrecreation(ctx)
 	return nil
 }
 
 // Close stops the precreation service.
-func (s *Service) Close() error {
-	if s.cancel == nil {
+func (service *Service) Close() error {
+	if service.cancel == nil {
 		return nil
 	}
 
-	s.cancel()
-	s.wg.Wait()
-	s.cancel = nil
+	service.cancel()
+	service.wg.Wait()
+	service.cancel = nil
 
 	return nil
 }
 
 // runPrecreation continually checks if resources need precreation.
-func (s *Service) runPrecreation(ctx context.Context) {
-	defer s.wg.Done()
+func (service *Service) runPrecreation(ctx context.Context) {
+	defer service.wg.Done()
 
 	for {
 		select {
-		case <-time.After(s.checkInterval):
-			if err := s.precreate(time.Now().UTC()); err != nil {
-				s.Logger.Info("Failed to precreate shards", zap.Error(err))
+		case <-time.After(service.checkInterval):
+			if err := service.precreate(time.Now().UTC()); err != nil {
+				service.Logger.Info("Failed to precreate shards", zap.Error(err))
 			}
 		case <-ctx.Done():
-			s.Logger.Info("Terminating precreation service")
+			service.Logger.Info("Terminating precreation service")
 			return
 		}
 	}
 }
 
-// precreate performs actual resource precreation.
-func (s *Service) precreate(now time.Time) error {
-	cutoff := now.Add(s.advancePeriod).UTC()
-	return s.MetaClient.PrecreateShardGroups(now, cutoff)
+// performs actual resource precreation.
+func (service *Service) precreate(now time.Time) error {
+	cutoff := now.Add(service.advancePeriod).UTC()
+	return service.MetaClient.PrecreateShardGroups(now, cutoff)
 }

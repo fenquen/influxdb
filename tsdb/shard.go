@@ -2569,7 +2569,7 @@ const (
 	DeleteMeasurement   = ChangeType(internal.ChangeType_DeleteMeasurement)
 )
 
-// NewFieldKeysIterator returns an iterator that can be iterated over to
+// returns an iterator that can be iterated over to
 // retrieve field keys.
 func NewFieldKeysIterator(sh *Shard, opt query.IteratorOptions) (query.Iterator, error) {
 	itr := &fieldKeysIterator{shard: sh}

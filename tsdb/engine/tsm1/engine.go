@@ -1251,7 +1251,7 @@ func (engine *Engine) addToIndexFromKey(keys [][]byte, fieldTypes []influxql.Dat
 	return engine.index.CreateSeriesListIfNotExists(keys, names, tags)
 }
 
-// WritePoints writes metadata and point data into the engine.
+// write metadata and point data into the engine.
 // It returns an error if new points are added to an existing key.
 func (engine *Engine) WritePoints(ctx context.Context, points []models.Point) error {
 	values := make(map[string][]Value, len(points))
@@ -1907,7 +1907,7 @@ func (engine *Engine) CreateSnapshot(skipCacheOk bool) (string, error) {
 	return path, nil
 }
 
-// writeSnapshotAndCommit will write the passed cache to a new TSM file and remove the closed WAL segments.
+// will write the passed cache to a new TSM file and remove the closed WAL segments.
 func (engine *Engine) writeSnapshotAndCommit(log *zap.Logger, closedFiles []string, snapshot *Cache) (err error) {
 	defer func() {
 		if err != nil {
@@ -2666,7 +2666,7 @@ func (engine *Engine) createTagSetIterators(ctx context.Context, ref *influxql.V
 	return itrs, nil
 }
 
-// createTagSetGroupIterators creates a set of iterators for a subset of a tagset's series.
+// creates a set of iterators for a subset of a tagset's series.
 func (engine *Engine) createTagSetGroupIterators(ctx context.Context, ref *influxql.VarRef, name string, seriesKeys []string, t *query.TagSet, filters []influxql.Expr, opt query.IteratorOptions) ([]query.Iterator, error) {
 	itrs := make([]query.Iterator, 0, len(seriesKeys))
 	for i, seriesKey := range seriesKeys {
@@ -2702,7 +2702,7 @@ func (engine *Engine) createTagSetGroupIterators(ctx context.Context, ref *influ
 	return itrs, nil
 }
 
-// createVarRefSeriesIterator creates an iterator for a variable reference for a series.
+// creates an iterator for a variable reference for a series.
 func (engine *Engine) createVarRefSeriesIterator(ctx context.Context, ref *influxql.VarRef, name string, seriesKey string, t *query.TagSet, filter influxql.Expr, conditionFields []influxql.VarRef, opt query.IteratorOptions) (query.Iterator, error) {
 	_, tfs := models.ParseKey([]byte(seriesKey))
 	tags := query.NewTags(tfs.Map())

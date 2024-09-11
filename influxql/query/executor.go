@@ -138,9 +138,9 @@ func NewContextWithIterators(ctx context.Context, itr *Iterators) context.Contex
 	return context.WithValue(ctx, iteratorsContextKey{}, itr)
 }
 
-// StatementExecutor executes a statement within the Executor.
+// executes a statement within the Executor.
 type StatementExecutor interface {
-	// ExecuteStatement executes a statement. Results should be sent to the
+	// executes a statement. Results should be sent to the
 	// results channel in the ExecutionContext.
 	ExecuteStatement(ctx context.Context, stmt influxql.Statement, ectx *ExecutionContext) error
 }
@@ -189,7 +189,7 @@ func (e *Executor) Close() error {
 	return nil
 }
 
-// ExecuteQuery executes each statement within a query.
+// executes each statement within a query.
 func (e *Executor) ExecuteQuery(ctx context.Context, query *influxql.Query, opt ExecutionOptions) (<-chan *Result, *iql.Statistics) {
 	results := make(chan *Result)
 	statistics := new(iql.Statistics)

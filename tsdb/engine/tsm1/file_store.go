@@ -173,7 +173,7 @@ type FileStore struct {
 	dir               string
 
 	files           []TSMFile
-	tsmMMAPWillNeed bool          // If true then the kernel will be advised MMAP_WILLNEED for TSM files.
+	tsmMMAPWillNeed bool          // If true then the kernel will be advised MMAP_WILLNEED for TSM files. 对应 storage-tsm-use-madv-willneed
 	openLimiter     limiter.Fixed // limit the number of concurrent opening TSM files.
 
 	logger       *zap.Logger // Logger to be used for important messages

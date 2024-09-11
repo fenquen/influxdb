@@ -229,18 +229,18 @@ func (cur *scannerCursorBase) clear(m map[string]interface{}) {
 var _ Cursor = (*scannerCursor)(nil)
 
 type scannerCursor struct {
-	scanner IteratorScanner
+	iteratorScanner IteratorScanner
 	scannerCursorBase
 }
 
 func newScannerCursor(s IteratorScanner, fields []*influxql.Field, opt IteratorOptions) *scannerCursor {
-	cur := &scannerCursor{scanner: s}
+	cur := &scannerCursor{iteratorScanner: s}
 	cur.scannerCursorBase = newScannerCursorBase(cur.scan, fields, opt.Location)
 	return cur
 }
 
 func (s *scannerCursor) scan(m map[string]interface{}) (int64, string, Tags) {
-	ts, name, tags := s.scanner.Peek()
+	ts, name, tags := s.iteratorScanner.Peek()
 	// if a new series, clear the map of previous values
 	if name != s.series.Name || tags.ID() != s.series.Tags.ID() {
 		s.clear(m)
@@ -248,20 +248,20 @@ func (s *scannerCursor) scan(m map[string]interface{}) (int64, string, Tags) {
 	if ts == ZeroTime {
 		return ts, name, tags
 	}
-	s.scanner.ScanAt(ts, name, tags, m)
+	s.iteratorScanner.ScanAt(ts, name, tags, m)
 	return ts, name, tags
 }
 
 func (cur *scannerCursor) Stats() IteratorStats {
-	return cur.scanner.Stats()
+	return cur.iteratorScanner.Stats()
 }
 
 func (cur *scannerCursor) Err() error {
-	return cur.scanner.Err()
+	return cur.iteratorScanner.Err()
 }
 
 func (cur *scannerCursor) Close() error {
-	return cur.scanner.Close()
+	return cur.iteratorScanner.Close()
 }
 
 var _ Cursor = (*multiScannerCursor)(nil)

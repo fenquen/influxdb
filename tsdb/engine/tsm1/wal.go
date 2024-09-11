@@ -92,10 +92,10 @@ type WAL struct {
 	once    sync.Once
 	closing chan struct{}
 
-	// syncDelay sets the duration to wait before fsyncing writes.  A value of 0 (default)
+	// set the duration to wait before fsyncing writes.  A value of 0 (default)
 	// will cause every write to be fsync'd.  This must be set before the WAL
 	// is opened if a non-default value is required.
-	syncDelay time.Duration
+	syncDelay time.Duration // 对应 storage-wal-fsync-delay
 
 	// WALOutput is the writer used by the logger.
 	logger       *zap.Logger // Logger to be used for important messages
@@ -108,15 +108,15 @@ type WAL struct {
 	// statistics for the WAL
 	stats *walMetrics
 
-	// limiter limits the max concurrency of waiting WAL writes.
-	limiter limiter.Fixed
+	// limit the max concurrency of waiting WAL writes.
+	limiter limiter.Fixed // 对应 storage-wal-max-concurrent-writes
 
-	// maxWriteWait sets the max duration the WAL will wait when limiter has no available
+	// set the max duration the WAL will wait when limiter has no available
 	// values to take.
-	maxWriteWait time.Duration
+	maxWriteWait time.Duration // 对应 storage-wal-max-write-delay
 }
 
-// NewWAL initializes a new WAL at the given directory.
+// initializes a new WAL at the given directory.
 func NewWAL(path string, maxConcurrentWrites int, maxWriteDelay time.Duration, tags tsdb.EngineTags) *WAL {
 	logger := zap.NewNop()
 	if maxConcurrentWrites == 0 {
@@ -303,7 +303,7 @@ func (wal *WAL) Open() error {
 	return nil
 }
 
-// scheduleSync will schedule an fsync to the current wal segment and notify any
+// will schedule an fsync to the current wal segment and notify any
 // waiting gorutines.  If an fsync is already scheduled, subsequent calls will
 // not schedule a new fsync and will be handle by the existing scheduled fsync.
 func (wal *WAL) scheduleSync() {
@@ -349,7 +349,7 @@ func (wal *WAL) scheduleSync() {
 	}()
 }
 
-// sync fsyncs the current wal segments and notifies any waiters.  Callers must ensure
+// fsyncs the current wal segments and notifies any waiters.  Callers must ensure
 // a write lock on the WAL is obtained before calling sync.
 func (wal *WAL) sync() {
 	err := wal.currentSegmentWriter.sync()
@@ -359,7 +359,7 @@ func (wal *WAL) sync() {
 	}
 }
 
-// WriteMulti writes the given values to the WAL. It returns the WAL segment ID to
+// write the given values to the WAL. It returns the WAL segment ID to
 // which the points were written. If an error is returned the segment ID should
 // be ignored.
 func (wal *WAL) WriteMulti(ctx context.Context, values map[string][]Value) (int, error) {
@@ -1124,54 +1124,54 @@ func NewWALSegmentWriter(w io.WriteCloser) *WALSegmentWriter {
 	}
 }
 
-func (w *WALSegmentWriter) path() string {
-	if f, ok := w.w.(*os.File); ok {
+func (walSegmentWriter *WALSegmentWriter) path() string {
+	if f, ok := walSegmentWriter.w.(*os.File); ok {
 		return f.Name()
 	}
 	return ""
 }
 
 // Write writes entryType and the buffer containing compressed entry data.
-func (w *WALSegmentWriter) Write(entryType WalEntryType, compressed []byte) error {
+func (walSegmentWriter *WALSegmentWriter) Write(entryType WalEntryType, compressed []byte) error {
 	var buf [5]byte
 	buf[0] = byte(entryType)
 	binary.BigEndian.PutUint32(buf[1:5], uint32(len(compressed)))
 
-	if _, err := w.bw.Write(buf[:]); err != nil {
+	if _, err := walSegmentWriter.bw.Write(buf[:]); err != nil {
 		return err
 	}
 
-	if _, err := w.bw.Write(compressed); err != nil {
+	if _, err := walSegmentWriter.bw.Write(compressed); err != nil {
 		return err
 	}
 
-	w.size += len(buf) + len(compressed)
+	walSegmentWriter.size += len(buf) + len(compressed)
 
 	return nil
 }
 
 // Sync flushes the file systems in-memory copy of recently written data to disk,
 // if w is writing to an os.File.
-func (w *WALSegmentWriter) sync() error {
-	if err := w.bw.Flush(); err != nil {
+func (walSegmentWriter *WALSegmentWriter) sync() error {
+	if err := walSegmentWriter.bw.Flush(); err != nil {
 		return err
 	}
 
-	if f, ok := w.w.(*os.File); ok {
+	if f, ok := walSegmentWriter.w.(*os.File); ok {
 		return f.Sync()
 	}
 	return nil
 }
 
-func (w *WALSegmentWriter) Flush() error {
-	return w.bw.Flush()
+func (walSegmentWriter *WALSegmentWriter) Flush() error {
+	return walSegmentWriter.bw.Flush()
 }
 
-func (w *WALSegmentWriter) close() error {
-	if err := w.Flush(); err != nil {
+func (walSegmentWriter *WALSegmentWriter) close() error {
+	if err := walSegmentWriter.Flush(); err != nil {
 		return err
 	}
-	return w.w.Close()
+	return walSegmentWriter.w.Close()
 }
 
 // WALSegmentReader reads WAL segments.

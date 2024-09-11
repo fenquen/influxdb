@@ -128,14 +128,14 @@ var WithSeriesIDCacheSize = func(sz int) IndexOption {
 	}
 }
 
-// Index represents a collection of layered index files and WAL.
+// represents a collection of layered index files and WAL.
 type Index struct {
 	mu         sync.RWMutex
 	partitions []*Partition
 	opened     bool
 
 	tagValueCache     *TagValueSeriesIDCache
-	tagValueCacheSize int
+	tagValueCacheSize int // 对应 storage-series-id-set-cache-size
 
 	// The following may be set when initializing an Index.
 	path               string        // Root directory of the index partitions.
@@ -996,38 +996,38 @@ func (index *Index) TagKeySeriesIDIterator(name, key []byte) (tsdb.SeriesIDItera
 	return tsdb.MergeSeriesIDIterators(a...), nil
 }
 
-// TagValueSeriesIDIterator returns a series iterator for a single tag value.
+// return a series iterator for a single tag value.
 func (index *Index) TagValueSeriesIDIterator(name, key, value []byte) (tsdb.SeriesIDIterator, error) {
 	// Check series ID set cache...
 	if index.tagValueCacheSize > 0 {
-		if ss := index.tagValueCache.Get(name, key, value); ss != nil {
+		if seriesIDSet := index.tagValueCache.Get(name, key, value); seriesIDSet != nil {
 			// Return a clone because the set is mutable.
-			return tsdb.NewSeriesIDSetIterator(ss.Clone()), nil
+			return tsdb.NewSeriesIDSetIterator(seriesIDSet.Clone()), nil
 		}
 	}
 
 	a := make([]tsdb.SeriesIDIterator, 0, len(index.partitions))
-	for _, p := range index.partitions {
-		itr, err := p.TagValueSeriesIDIterator(name, key, value)
+	for _, partition := range index.partitions {
+		seriesIDIterator, err := partition.TagValueSeriesIDIterator(name, key, value)
 		if err != nil {
 			tsdb.SeriesIDIterators(a).Close()
 			return nil, err
-		} else if itr != nil {
-			a = append(a, itr)
+		} else if seriesIDIterator != nil {
+			a = append(a, seriesIDIterator)
 		}
 	}
 
-	itr := tsdb.MergeSeriesIDIterators(a...)
+	seriesIDIterator := tsdb.MergeSeriesIDIterators(a...)
 	if index.tagValueCacheSize == 0 {
-		return itr, nil
+		return seriesIDIterator, nil
 	}
 
 	// Check if the iterator contains only series id sets. Cache them...
-	if ssitr, ok := itr.(tsdb.SeriesIDSetIterator); ok {
-		ss := ssitr.SeriesIDSet()
-		index.tagValueCache.Put(name, key, value, ss)
+	if seriesIDSetIterator, ok := seriesIDIterator.(tsdb.SeriesIDSetIterator); ok {
+		seriesIDSet := seriesIDSetIterator.SeriesIDSet()
+		index.tagValueCache.Put(name, key, value, seriesIDSet)
 	}
-	return itr, nil
+	return seriesIDIterator, nil
 }
 
 // MeasurementTagKeysByExpr extracts the tag keys wanted by the expression.

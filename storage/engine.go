@@ -134,10 +134,10 @@ func NewEngine(path string, c Config, options ...Option) *Engine {
 	e.tsdbStore.EngineOptions.IndexVersion = c.Data.Index
 	e.tsdbStore.EngineOptions.MetricsDisabled = e.metricsDisabled
 
-	pw := coordinator.NewPointsWriter(c.WriteTimeout, path)
-	pw.TSDBStore = e.tsdbStore
-	pw.MetaClient = e.metaClient
-	e.pointsWriter = pw
+	pointsWriter := coordinator.NewPointsWriter(c.WriteTimeout, path)
+	pointsWriter.TSDBStore = e.tsdbStore
+	pointsWriter.MetaClient = e.metaClient
+	e.pointsWriter = pointsWriter
 
 	e.retentionService = retention.NewService(c.RetentionService)
 	e.retentionService.TSDBStore = e.tsdbStore

@@ -1115,12 +1115,12 @@ func (c *compiledStatement) subquery(stmt *influxql.SelectStatement) error {
 	return subquery.compile(stmt)
 }
 
-func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper, sopt SelectOptions) (PreparedStatement, error) {
+func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper, selectOptions SelectOptions) (PreparedStatement, error) {
 	// If this is a query with a grouping, there is a bucket limit, and the minimum time has not been specified,
 	// we need to limit the possible time range that can be used when mapping shards but not when actually executing
 	// the select statement. Determine the shard time range here.
 	timeRange := c.TimeRange
-	if sopt.MaxBucketsN > 0 && !c.stmt.IsRawQuery && timeRange.MinTimeNano() == influxql.MinTime {
+	if selectOptions.MaxBucketsN > 0 && !c.stmt.IsRawQuery && timeRange.MinTimeNano() == influxql.MinTime {
 		interval, err := c.stmt.GroupByInterval()
 		if err != nil {
 			return nil, err
@@ -1144,10 +1144,10 @@ func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper
 			// Determine the time difference using the number of buckets.
 			// Determine the maximum difference between the buckets based on the end time.
 			maxDiff := last - models.MinNanoTime
-			if maxDiff/int64(interval) > int64(sopt.MaxBucketsN) {
+			if maxDiff/int64(interval) > int64(selectOptions.MaxBucketsN) {
 				timeRange.Min = time.Unix(0, models.MinNanoTime)
 			} else {
-				timeRange.Min = time.Unix(0, last-int64(interval)*int64(sopt.MaxBucketsN-1))
+				timeRange.Min = time.Unix(0, last-int64(interval)*int64(selectOptions.MaxBucketsN-1))
 			}
 		}
 	}
@@ -1172,7 +1172,7 @@ func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper
 	}
 
 	// Create an iterator creator based on the shards in the cluster.
-	shards, err := shardMapper.MapShards(ctx, c.stmt.Sources, timeRange, sopt)
+	shards, err := shardMapper.MapShards(ctx, c.stmt.Sources, timeRange, selectOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -1192,7 +1192,7 @@ func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper
 	}
 
 	// Determine base options for iterators.
-	opt, err := newIteratorOptionsStmt(stmt, sopt)
+	opt, err := newIteratorOptionsStmt(stmt, selectOptions)
 	if err != nil {
 		shards.Close()
 		return nil, err
@@ -1200,7 +1200,7 @@ func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper
 	opt.StartTime, opt.EndTime = c.TimeRange.MinTimeNano(), c.TimeRange.MaxTimeNano()
 	opt.Ascending = c.Ascending
 
-	if sopt.MaxBucketsN > 0 && !stmt.IsRawQuery && c.TimeRange.MinTimeNano() > influxql.MinTime {
+	if selectOptions.MaxBucketsN > 0 && !stmt.IsRawQuery && c.TimeRange.MinTimeNano() > influxql.MinTime {
 		interval, err := stmt.GroupByInterval()
 		if err != nil {
 			shards.Close()
@@ -1214,9 +1214,9 @@ func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper
 
 			// Determine the number of buckets by finding the time span and dividing by the interval.
 			buckets := (last - first + int64(interval)) / int64(interval)
-			if int(buckets) > sopt.MaxBucketsN {
+			if int(buckets) > selectOptions.MaxBucketsN {
 				shards.Close()
-				return nil, fmt.Errorf("max-select-buckets limit exceeded: (%d/%d)", buckets, sopt.MaxBucketsN)
+				return nil, fmt.Errorf("max-select-buckets limit exceeded: (%d/%d)", buckets, selectOptions.MaxBucketsN)
 			}
 		}
 	}
@@ -1227,7 +1227,7 @@ func (c *compiledStatement) Prepare(ctx context.Context, shardMapper ShardMapper
 		opt:       opt,
 		ic:        shards,
 		columns:   columns,
-		maxPointN: sopt.MaxPointN,
+		maxPointN: selectOptions.MaxPointN,
 		now:       c.Options.Now,
 	}, nil
 }

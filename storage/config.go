@@ -14,7 +14,7 @@ const DefaultWriteTimeout = 10 * time.Second
 // Config holds the configuration for an Engine.
 type Config struct {
 	Data         tsdb.Config
-	WriteTimeout time.Duration
+	WriteTimeout time.Duration // 对应 storage-write-timeout
 
 	RetentionService retention.Config
 	PrecreatorConfig precreator.Config

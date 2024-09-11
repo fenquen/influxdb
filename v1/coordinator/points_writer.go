@@ -24,11 +24,11 @@ var (
 	ErrWriteFailed = errors.New("write failed")
 )
 
-// PointsWriter handles writes across multiple local and remote data nodes.
+// handle writes across multiple local and remote data nodes.
 type PointsWriter struct {
 	mu           sync.RWMutex
 	closing      chan struct{}
-	WriteTimeout time.Duration
+	WriteTimeout time.Duration // 对应 storage-write-timeout
 	Logger       *zap.Logger
 
 	Node *influxdb.Node
@@ -353,7 +353,7 @@ func (l *sgList) Add(sgi meta.ShardGroupInfo) {
 	}
 }
 
-// WritePoints writes the data to the underlying storage. consistencyLevel and user are only used for clustered scenarios
+// writes the data to the underlying storage. consistencyLevel and user are only used for clustered scenarios
 func (w *PointsWriter) WritePoints(
 	ctx context.Context,
 	database, retentionPolicy string,
@@ -364,7 +364,7 @@ func (w *PointsWriter) WritePoints(
 	return w.WritePointsPrivileged(ctx, database, retentionPolicy, consistencyLevel, points)
 }
 
-// WritePointsPrivileged writes the data to the underlying storage, consistencyLevel is only used for clustered scenarios
+// write the data to the underlying storage, consistencyLevel is only used for clustered scenarios
 func (w *PointsWriter) WritePointsPrivileged(
 	ctx context.Context,
 	database, retentionPolicy string,
