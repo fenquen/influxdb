@@ -1813,7 +1813,7 @@ func (engine *Engine) CreateSeriesIfNotExists(key, name []byte, tags models.Tags
 	return engine.index.CreateSeriesIfNotExists(key, name, tags)
 }
 
-// WriteTo is not implemented.
+// not implemented.
 func (engine *Engine) WriteTo(w io.Writer) (n int64, err error) { panic("not implemented") }
 
 // will snapshot the cache and write into a new TSM file with its contents, releasing the snapshot when done.

@@ -26,7 +26,7 @@ var (
 	ErrUnknownEngineFormat = errors.New("unknown engine format")
 )
 
-// Engine represents a swappable storage engine for the shard.
+// represent a swappable storage engine for the shard.
 type Engine interface {
 	Open(ctx context.Context) error
 	Close() error

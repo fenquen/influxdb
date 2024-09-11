@@ -798,7 +798,7 @@ func (c *Compactor) DisableSnapshots() {
 	c.mu.Unlock()
 }
 
-// EnableSnapshots allows the compactor to perform snapshots.
+// allows the compactor to perform snapshots.
 func (c *Compactor) EnableSnapshots() {
 	c.mu.Lock()
 	c.snapshotsEnabled = true
