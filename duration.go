@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// Duration is based on time.Duration to embed in any struct.
 type Duration struct {
 	time.Duration
 }

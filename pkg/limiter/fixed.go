@@ -48,7 +48,7 @@ func (t Fixed) Take(ctx context.Context) error {
 	}
 }
 
-// Release releases a token back to the limiter.
+// releases a token back to the limiter.
 func (t Fixed) Release() {
 	<-t
 }

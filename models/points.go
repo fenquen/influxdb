@@ -81,7 +81,7 @@ const (
 	MaxKeyLength = 65535
 )
 
-// Point defines the values that will be written to the database.
+// defines the values that will be written to the database.
 type Point interface {
 	// Name return the measurement name for the point.
 	Name() []byte
@@ -225,9 +225,9 @@ func (a Points) Less(i, j int) bool { return a[i].Time().Before(a[j].Time()) }
 // Swap implements sort.Interface.
 func (a Points) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
-// point is the default implementation of Point.
+// the default implementation of Point.
 type point struct {
-	time time.Time
+	time time.Time // 默认 time.Now().UTC() 证明 points_parser.go:69
 
 	// text encoding of measurement and tags
 	// key must always be stored sorted by tags, if the original line was not sorted,

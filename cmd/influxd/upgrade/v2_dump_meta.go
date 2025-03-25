@@ -100,9 +100,9 @@ var v2DumpMetaCommand = &cobra.Command{
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", "Database/RP", "Start Time", "End Time", "Shards")
 		for _, db := range svc.meta.Databases() {
 			for _, rp := range db.RetentionPolicies {
-				for _, sg := range rp.ShardGroups {
+				for _, sg := range rp.ShardGroupInfos {
 					fmt.Fprintf(tw, "%s/%s\t%s\t%s\t", db.Name, rp.Name, sg.StartTime.String(), sg.EndTime.String())
-					for i, si := range sg.Shards {
+					for i, si := range sg.ShardInfos {
 						if i > 0 {
 							fmt.Fprint(tw, ",")
 						}

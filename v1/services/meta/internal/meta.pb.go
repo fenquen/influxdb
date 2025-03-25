@@ -970,7 +970,7 @@ type UserPrivilege struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database  *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database  *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Privilege *int32  `protobuf:"varint,2,req,name=Privilege" json:"Privilege,omitempty"`
 }
 
@@ -1186,7 +1186,7 @@ type CreateDatabaseCommand struct {
 	unknownFields protoimpl.UnknownFields
 
 	Name            *string              `protobuf:"bytes,1,req,name=Name" json:"Name,omitempty"`
-	RetentionPolicy *RetentionPolicyInfo `protobuf:"bytes,2,opt,name=RetentionPolicy" json:"RetentionPolicy,omitempty"`
+	RetentionPolicy *RetentionPolicyInfo `protobuf:"bytes,2,opt,name=RetentionPolicyName" json:"RetentionPolicyName,omitempty"`
 }
 
 func (x *CreateDatabaseCommand) Reset() {
@@ -1287,8 +1287,8 @@ type CreateRetentionPolicyCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database        *string              `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
-	RetentionPolicy *RetentionPolicyInfo `protobuf:"bytes,2,req,name=RetentionPolicy" json:"RetentionPolicy,omitempty"`
+	Database        *string              `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
+	RetentionPolicy *RetentionPolicyInfo `protobuf:"bytes,2,req,name=RetentionPolicyName" json:"RetentionPolicyName,omitempty"`
 }
 
 func (x *CreateRetentionPolicyCommand) Reset() {
@@ -1342,7 +1342,7 @@ type DropRetentionPolicyCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Name     *string `protobuf:"bytes,2,req,name=Name" json:"Name,omitempty"`
 }
 
@@ -1397,7 +1397,7 @@ type SetDefaultRetentionPolicyCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Name     *string `protobuf:"bytes,2,req,name=Name" json:"Name,omitempty"`
 }
 
@@ -1452,7 +1452,7 @@ type UpdateRetentionPolicyCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Name     *string `protobuf:"bytes,2,req,name=Name" json:"Name,omitempty"`
 	NewName  *string `protobuf:"bytes,3,opt,name=NewName" json:"NewName,omitempty"`
 	Duration *int64  `protobuf:"varint,4,opt,name=Duration" json:"Duration,omitempty"`
@@ -1531,7 +1531,7 @@ type CreateShardGroupCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database  *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database  *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Policy    *string `protobuf:"bytes,2,req,name=Policy" json:"Policy,omitempty"`
 	Timestamp *int64  `protobuf:"varint,3,req,name=Timestamp" json:"Timestamp,omitempty"`
 }
@@ -1594,7 +1594,7 @@ type DeleteShardGroupCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database     *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database     *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Policy       *string `protobuf:"bytes,2,req,name=Policy" json:"Policy,omitempty"`
 	ShardGroupID *uint64 `protobuf:"varint,3,req,name=ShardGroupID" json:"ShardGroupID,omitempty"`
 }
@@ -1657,7 +1657,7 @@ type CreateContinuousQueryCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Name     *string `protobuf:"bytes,2,req,name=Name" json:"Name,omitempty"`
 	Query    *string `protobuf:"bytes,3,req,name=Query" json:"Query,omitempty"`
 }
@@ -1720,7 +1720,7 @@ type DropContinuousQueryCommand struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
+	Database *string `protobuf:"bytes,1,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Name     *string `protobuf:"bytes,2,req,name=Name" json:"Name,omitempty"`
 }
 
@@ -1941,7 +1941,7 @@ type SetPrivilegeCommand struct {
 	unknownFields protoimpl.UnknownFields
 
 	Username  *string `protobuf:"bytes,1,req,name=Username" json:"Username,omitempty"`
-	Database  *string `protobuf:"bytes,2,req,name=Database" json:"Database,omitempty"`
+	Database  *string `protobuf:"bytes,2,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
 	Privilege *int32  `protobuf:"varint,3,req,name=Privilege" json:"Privilege,omitempty"`
 }
 
@@ -2161,8 +2161,8 @@ type CreateSubscriptionCommand struct {
 	unknownFields protoimpl.UnknownFields
 
 	Name            *string  `protobuf:"bytes,1,req,name=Name" json:"Name,omitempty"`
-	Database        *string  `protobuf:"bytes,2,req,name=Database" json:"Database,omitempty"`
-	RetentionPolicy *string  `protobuf:"bytes,3,req,name=RetentionPolicy" json:"RetentionPolicy,omitempty"`
+	Database        *string  `protobuf:"bytes,2,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
+	RetentionPolicy *string  `protobuf:"bytes,3,req,name=RetentionPolicyName" json:"RetentionPolicyName,omitempty"`
 	Mode            *string  `protobuf:"bytes,4,req,name=Mode" json:"Mode,omitempty"`
 	Destinations    []string `protobuf:"bytes,5,rep,name=Destinations" json:"Destinations,omitempty"`
 }
@@ -2240,8 +2240,8 @@ type DropSubscriptionCommand struct {
 	unknownFields protoimpl.UnknownFields
 
 	Name            *string `protobuf:"bytes,1,req,name=Name" json:"Name,omitempty"`
-	Database        *string `protobuf:"bytes,2,req,name=Database" json:"Database,omitempty"`
-	RetentionPolicy *string `protobuf:"bytes,3,req,name=RetentionPolicy" json:"RetentionPolicy,omitempty"`
+	Database        *string `protobuf:"bytes,2,req,name=BucketIdStr" json:"BucketIdStr,omitempty"`
+	RetentionPolicy *string `protobuf:"bytes,3,req,name=RetentionPolicyName" json:"RetentionPolicyName,omitempty"`
 }
 
 func (x *DropSubscriptionCommand) Reset() {
@@ -3634,8 +3634,8 @@ var file_internal_meta_proto_depIdxs = []int32{
 	9,  // 10: meta.ShardInfo.Owners:type_name -> meta.ShardOwner
 	12, // 11: meta.UserInfo.Privileges:type_name -> meta.UserPrivilege
 	0,  // 12: meta.Command.type:type_name -> meta.Command.Type
-	5,  // 13: meta.CreateDatabaseCommand.RetentionPolicy:type_name -> meta.RetentionPolicyInfo
-	5,  // 14: meta.CreateRetentionPolicyCommand.RetentionPolicy:type_name -> meta.RetentionPolicyInfo
+	5,  // 13: meta.CreateDatabaseCommand.RetentionPolicyName:type_name -> meta.RetentionPolicyInfo
+	5,  // 14: meta.CreateRetentionPolicyCommand.RetentionPolicyName:type_name -> meta.RetentionPolicyInfo
 	1,  // 15: meta.SetDataCommand.Data:type_name -> meta.Data
 	13, // 16: meta.CreateNodeCommand.command:extendee -> meta.Command
 	13, // 17: meta.DeleteNodeCommand.command:extendee -> meta.Command

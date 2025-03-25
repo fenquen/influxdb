@@ -110,15 +110,15 @@ func upgradeDatabases(ctx context.Context, cli clients.CLI, v1 *influxDBv1, v2 *
 				return nil, fmt.Errorf("error creating mapping  %s/%s -> Org %s, bucket %s: %w", mapping.Database, mapping.RetentionPolicy, mapping.OrganizationID.String(), mapping.BucketID.String(), err)
 			}
 			shardsNum := 0
-			for _, sg := range rp.ShardGroups {
+			for _, sg := range rp.ShardGroupInfos {
 				log.Debug(
 					"Creating shard group",
 					zap.String("database", dbv2.Name),
 					zap.String("retention policy", dbv2.DefaultRetentionPolicy),
 					zap.Time("time", sg.StartTime),
 				)
-				shardsNum += len(sg.Shards)
-				_, err := v2.meta.CreateShardGroupWithShards(dbv2.Name, dbv2.DefaultRetentionPolicy, sg.StartTime, sg.Shards)
+				shardsNum += len(sg.ShardInfos)
+				_, err := v2.meta.CreateShardGroupWithShards(dbv2.Name, dbv2.DefaultRetentionPolicy, sg.StartTime, sg.ShardInfos)
 				if err != nil {
 					return nil, fmt.Errorf("error creating database %s: %w", bucket.ID.String(), err)
 				}

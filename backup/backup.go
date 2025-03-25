@@ -71,7 +71,7 @@ func retentionPolicyToManifest(meta []meta.RetentionPolicyInfo) []influxdb.Reten
 			ReplicaN:           m.ReplicaN,
 			Duration:           m.Duration,
 			ShardGroupDuration: m.ShardGroupDuration,
-			ShardGroups:        shardGroupToManifest(m.ShardGroups),
+			ShardGroups:        shardGroupToManifest(m.ShardGroupInfos),
 			Subscriptions:      subscriptionInfosToManifest(m.Subscriptions),
 		})
 	}
@@ -112,7 +112,7 @@ func shardGroupToManifest(shardGroups []meta.ShardGroupInfo) []influxdb.ShardGro
 			EndTime:     s.EndTime,
 			DeletedAt:   deletedAt,
 			TruncatedAt: truncatedAt,
-			Shards:      shardInfosToManifest(s.Shards),
+			Shards:      shardInfosToManifest(s.ShardInfos),
 		})
 	}
 

@@ -111,16 +111,16 @@ func (data *Data) DropDatabase(name string) error {
 	return nil
 }
 
-// RetentionPolicy returns a retention policy for a database by name.
-func (data *Data) RetentionPolicy(database, name string) (*RetentionPolicyInfo, error) {
-	di := data.Database(database)
-	if di == nil {
-		return nil, influxdb.ErrDatabaseNotFound(database)
+// returns a retention policy for a database by name.
+func (data *Data) GetRetentionPolicyInfo(bucketIdStr, retentionPolicyName string) (*RetentionPolicyInfo, error) {
+	databaseInfo := data.Database(bucketIdStr)
+	if databaseInfo == nil {
+		return nil, influxdb.ErrDatabaseNotFound(bucketIdStr)
 	}
 
-	for i := range di.RetentionPolicies {
-		if di.RetentionPolicies[i].Name == name {
-			return &di.RetentionPolicies[i], nil
+	for i := range databaseInfo.RetentionPolicies {
+		if databaseInfo.RetentionPolicies[i].Name == retentionPolicyName {
+			return &databaseInfo.RetentionPolicies[i], nil
 		}
 	}
 	return nil, nil
@@ -279,8 +279,8 @@ func (data *Data) DropShard(id uint64) {
 	found := -1
 	for dbidx, dbi := range data.Databases {
 		for rpidx, rpi := range dbi.RetentionPolicies {
-			for sgidx, sg := range rpi.ShardGroups {
-				for sidx, s := range sg.Shards {
+			for sgidx, sg := range rpi.ShardGroupInfos {
+				for sidx, s := range sg.ShardInfos {
 					if s.ID == id {
 						found = sidx
 						break
@@ -288,12 +288,12 @@ func (data *Data) DropShard(id uint64) {
 				}
 
 				if found > -1 {
-					shards := sg.Shards
-					data.Databases[dbidx].RetentionPolicies[rpidx].ShardGroups[sgidx].Shards = append(shards[:found], shards[found+1:]...)
+					shards := sg.ShardInfos
+					data.Databases[dbidx].RetentionPolicies[rpidx].ShardGroupInfos[sgidx].ShardInfos = append(shards[:found], shards[found+1:]...)
 
 					if len(shards) == 1 {
 						// We just deleted the last shard in the shard group.
-						data.Databases[dbidx].RetentionPolicies[rpidx].ShardGroups[sgidx].DeletedAt = time.Now()
+						data.Databases[dbidx].RetentionPolicies[rpidx].ShardGroupInfos[sgidx].DeletedAt = time.Now()
 					}
 					return
 				}
@@ -305,14 +305,14 @@ func (data *Data) DropShard(id uint64) {
 // ShardGroups returns a list of all shard groups on a database and retention policy.
 func (data *Data) ShardGroups(database, policy string) ([]ShardGroupInfo, error) {
 	// Find retention policy.
-	rpi, err := data.RetentionPolicy(database, policy)
+	rpi, err := data.GetRetentionPolicyInfo(database, policy)
 	if err != nil {
 		return nil, err
 	} else if rpi == nil {
 		return nil, influxdb.ErrRetentionPolicyNotFound(policy)
 	}
-	groups := make([]ShardGroupInfo, 0, len(rpi.ShardGroups))
-	for _, g := range rpi.ShardGroups {
+	groups := make([]ShardGroupInfo, 0, len(rpi.ShardGroupInfos))
+	for _, g := range rpi.ShardGroupInfos {
 		if g.Deleted() {
 			continue
 		}
@@ -325,14 +325,14 @@ func (data *Data) ShardGroups(database, policy string) ([]ShardGroupInfo, error)
 // for the specified time range. Shard groups are sorted by start time.
 func (data *Data) ShardGroupsByTimeRange(database, policy string, tmin, tmax time.Time) ([]ShardGroupInfo, error) {
 	// Find retention policy.
-	rpi, err := data.RetentionPolicy(database, policy)
+	rpi, err := data.GetRetentionPolicyInfo(database, policy)
 	if err != nil {
 		return nil, err
 	} else if rpi == nil {
 		return nil, influxdb.ErrRetentionPolicyNotFound(policy)
 	}
-	groups := make([]ShardGroupInfo, 0, len(rpi.ShardGroups))
-	for _, g := range rpi.ShardGroups {
+	groups := make([]ShardGroupInfo, 0, len(rpi.ShardGroupInfos))
+	for _, g := range rpi.ShardGroupInfos {
 		if g.Deleted() || !g.Overlaps(tmin, tmax) {
 			continue
 		}
@@ -341,49 +341,49 @@ func (data *Data) ShardGroupsByTimeRange(database, policy string, tmin, tmax tim
 	return groups, nil
 }
 
-// ShardGroupByTimestamp returns the shard group on a database and policy for a given timestamp.
-func (data *Data) ShardGroupByTimestamp(database, policy string, timestamp time.Time) (*ShardGroupInfo, error) {
+// returns the shard group on a database and policy for a given timestamp.
+func (data *Data) ShardGroupByTimestamp(database, retentionPolicy string, timestamp time.Time) (*ShardGroupInfo, error) {
 	// Find retention policy.
-	rpi, err := data.RetentionPolicy(database, policy)
+	rpi, err := data.GetRetentionPolicyInfo(database, retentionPolicy)
 	if err != nil {
 		return nil, err
 	} else if rpi == nil {
-		return nil, influxdb.ErrRetentionPolicyNotFound(policy)
+		return nil, influxdb.ErrRetentionPolicyNotFound(retentionPolicy)
 	}
 
-	return rpi.ShardGroupByTimestamp(timestamp), nil
+	return rpi.GetShardGroupByTs(timestamp), nil
 }
 
-// CreateShardGroup creates a shard group on a database and policy for a given timestamp.
-func (data *Data) CreateShardGroup(database, policy string, timestamp time.Time, shards ...ShardInfo) error {
+// creates a shard group on a database and policy for a given timestamp.
+func (data *Data) CreateShardGroup(bucketIdStr, retentionPolicyName string, timestamp time.Time, shards ...ShardInfo) error {
 	// Find retention policy.
-	rpi, err := data.RetentionPolicy(database, policy)
+	retentionPolicyInfo, err := data.GetRetentionPolicyInfo(bucketIdStr, retentionPolicyName)
 	if err != nil {
 		return err
-	} else if rpi == nil {
-		return influxdb.ErrRetentionPolicyNotFound(policy)
+	} else if retentionPolicyInfo == nil {
+		return influxdb.ErrRetentionPolicyNotFound(retentionPolicyName)
 	}
 
 	// Verify that shard group doesn't already exist for this timestamp.
-	if rpi.ShardGroupByTimestamp(timestamp) != nil {
+	if retentionPolicyInfo.GetShardGroupByTs(timestamp) != nil {
 		return nil
 	}
 
-	startTime := timestamp.Truncate(rpi.ShardGroupDuration).UTC()
-	endTime := startTime.Add(rpi.ShardGroupDuration).UTC()
+	startTime := timestamp.Truncate(retentionPolicyInfo.ShardGroupDuration).UTC()
+	endTime := startTime.Add(retentionPolicyInfo.ShardGroupDuration).UTC()
 	if endTime.After(time.Unix(0, models.MaxNanoTime)) {
 		// Shard group range is [start, end) so add one to the max time.
 		endTime = time.Unix(0, models.MaxNanoTime+1)
 	}
 
-	for i := range rpi.ShardGroups {
-		if rpi.ShardGroups[i].Deleted() {
+	for i := range retentionPolicyInfo.ShardGroupInfos { // 瞧瞧是不是会落到麾下的ShardGroupInfos对应的起止时间的空档
+		if retentionPolicyInfo.ShardGroupInfos[i].Deleted() {
 			continue
 		}
-		startI := rpi.ShardGroups[i].StartTime
-		endI := rpi.ShardGroups[i].EndTime
-		if rpi.ShardGroups[i].Truncated() {
-			endI = rpi.ShardGroups[i].TruncatedAt
+		startI := retentionPolicyInfo.ShardGroupInfos[i].StartTime
+		endI := retentionPolicyInfo.ShardGroupInfos[i].EndTime
+		if retentionPolicyInfo.ShardGroupInfos[i].Truncated() {
+			endI = retentionPolicyInfo.ShardGroupInfos[i].TruncatedAt
 		}
 
 		// shard_i covers range [start_i, end_i)
@@ -395,11 +395,11 @@ func (data *Data) CreateShardGroup(database, policy string, timestamp time.Time,
 
 		// It must be the case that either endI <= timestamp || timestamp < startI, because otherwise:
 		// startI <= timestamp < endI means timestamp is contained in shard I
-		if !timestamp.Before(endI) && endI.After(startTime) {
+		if !timestamp.Before(endI) && endI.After(startTime) { // startTime < endI <= timestamp
 			// startTime < endI <= timestamp
 			startTime = endI
 		}
-		if startI.After(timestamp) && startI.Before(endTime) {
+		if startI.After(timestamp) && startI.Before(endTime) { // timestamp < startI < endTime
 			// timestamp < startI < endTime
 			endTime = startI
 		}
@@ -407,22 +407,22 @@ func (data *Data) CreateShardGroup(database, policy string, timestamp time.Time,
 
 	// Create the shard group.
 	data.MaxShardGroupID++
-	sgi := ShardGroupInfo{}
-	sgi.ID = data.MaxShardGroupID
-	sgi.StartTime = startTime
-	sgi.EndTime = endTime
+	shardGroupInfo := ShardGroupInfo{}
+	shardGroupInfo.ID = data.MaxShardGroupID
+	shardGroupInfo.StartTime = startTime
+	shardGroupInfo.EndTime = endTime
 
 	if len(shards) > 0 {
-		sgi.Shards = make([]ShardInfo, len(shards))
+		shardGroupInfo.ShardInfos = make([]ShardInfo, len(shards))
 		for i, si := range shards {
-			sgi.Shards[i] = si
+			shardGroupInfo.ShardInfos[i] = si
 			if si.ID > data.MaxShardID {
 				data.MaxShardID = si.ID
 			}
 		}
 	} else {
 		data.MaxShardID++
-		sgi.Shards = []ShardInfo{
+		shardGroupInfo.ShardInfos = []ShardInfo{
 			{ID: data.MaxShardID},
 		}
 	}
@@ -430,8 +430,8 @@ func (data *Data) CreateShardGroup(database, policy string, timestamp time.Time,
 	// Retention policy has a new shard group, so update the policy. Shard
 	// Groups must be stored in sorted order, as other parts of the system
 	// assume this to be the case.
-	rpi.ShardGroups = append(rpi.ShardGroups, sgi)
-	sort.Sort(ShardGroupInfos(rpi.ShardGroups))
+	retentionPolicyInfo.ShardGroupInfos = append(retentionPolicyInfo.ShardGroupInfos, shardGroupInfo)
+	sort.Sort(ShardGroupInfos(retentionPolicyInfo.ShardGroupInfos))
 
 	return nil
 }
@@ -439,7 +439,7 @@ func (data *Data) CreateShardGroup(database, policy string, timestamp time.Time,
 // DeleteShardGroup removes a shard group from a database and retention policy by id.
 func (data *Data) DeleteShardGroup(database, policy string, id uint64) error {
 	// Find retention policy.
-	rpi, err := data.RetentionPolicy(database, policy)
+	rpi, err := data.GetRetentionPolicyInfo(database, policy)
 	if err != nil {
 		return err
 	} else if rpi == nil {
@@ -447,9 +447,9 @@ func (data *Data) DeleteShardGroup(database, policy string, id uint64) error {
 	}
 
 	// Find shard group by ID and set its deletion timestamp.
-	for i := range rpi.ShardGroups {
-		if rpi.ShardGroups[i].ID == id {
-			rpi.ShardGroups[i].DeletedAt = time.Now().UTC()
+	for i := range rpi.ShardGroupInfos {
+		if rpi.ShardGroupInfos[i].ID == id {
+			rpi.ShardGroupInfos[i].DeletedAt = time.Now().UTC()
 			return nil
 		}
 	}
@@ -530,7 +530,7 @@ func (data *Data) CreateSubscription(database, rp, name, mode string, destinatio
 		}
 	}
 
-	rpi, err := data.RetentionPolicy(database, rp)
+	rpi, err := data.GetRetentionPolicyInfo(database, rp)
 	if err != nil {
 		return err
 	} else if rpi == nil {
@@ -556,7 +556,7 @@ func (data *Data) CreateSubscription(database, rp, name, mode string, destinatio
 
 // DropSubscription removes a subscription.
 func (data *Data) DropSubscription(database, rp, name string) error {
-	rpi, err := data.RetentionPolicy(database, rp)
+	rpi, err := data.GetRetentionPolicyInfo(database, rp)
 	if err != nil {
 		return err
 	} else if rpi == nil {
@@ -806,8 +806,8 @@ func (data *Data) TruncateShardGroups(t time.Time) {
 		for j := range dbi.RetentionPolicies {
 			rpi := &dbi.RetentionPolicies[j]
 
-			for k := range rpi.ShardGroups {
-				sgi := &rpi.ShardGroups[k]
+			for k := range rpi.ShardGroupInfos {
+				sgi := &rpi.ShardGroupInfos[k]
 
 				if !t.Before(sgi.EndTime) || sgi.Deleted() || (sgi.Truncated() && sgi.TruncatedAt.Before(t)) {
 					continue
@@ -918,16 +918,16 @@ func (data *Data) importOneDB(other Data, backupDBName, restoreDBName, backupRPN
 
 	// renumber the shard groups and shards for the new retention policy(ies)
 	for _, rpImport := range dbImport.RetentionPolicies {
-		for j, sgImport := range rpImport.ShardGroups {
+		for j, sgImport := range rpImport.ShardGroupInfos {
 			data.MaxShardGroupID++
-			rpImport.ShardGroups[j].ID = data.MaxShardGroupID
-			for k := range sgImport.Shards {
+			rpImport.ShardGroupInfos[j].ID = data.MaxShardGroupID
+			for k := range sgImport.ShardInfos {
 				data.MaxShardID++
-				shardIDMap[sgImport.Shards[k].ID] = data.MaxShardID
-				sgImport.Shards[k].ID = data.MaxShardID
+				shardIDMap[sgImport.ShardInfos[k].ID] = data.MaxShardID
+				sgImport.ShardInfos[k].ID = data.MaxShardID
 				// OSS doesn't use Owners but if we are importing this from Enterprise, we'll want to clear it out
 				// to avoid any issues if they ever export this DB again to bring back to Enterprise.
-				sgImport.Shards[k].Owners = []ShardOwner{}
+				sgImport.ShardInfos[k].Owners = []ShardOwner{}
 			}
 		}
 	}
@@ -954,7 +954,7 @@ func (n NodeInfos) Swap(i, j int) { n[i], n[j] = n[j], n[i] }
 // Less implements sort.Interface.
 func (n NodeInfos) Less(i, j int) bool { return n[i].ID < n[j].ID }
 
-// DatabaseInfo represents information about a database in the system.
+// represents information about a database in the system.
 type DatabaseInfo struct {
 	Name                   string
 	DefaultRetentionPolicy string
@@ -983,14 +983,14 @@ func (di DatabaseInfo) RetentionPolicy(name string) *RetentionPolicyInfo {
 func (di DatabaseInfo) ShardInfos() []ShardInfo {
 	shards := map[uint64]*ShardInfo{}
 	for i := range di.RetentionPolicies {
-		for j := range di.RetentionPolicies[i].ShardGroups {
-			sg := di.RetentionPolicies[i].ShardGroups[j]
+		for j := range di.RetentionPolicies[i].ShardGroupInfos {
+			sg := di.RetentionPolicies[i].ShardGroupInfos[j]
 			// Skip deleted shard groups
 			if sg.Deleted() {
 				continue
 			}
-			for k := range sg.Shards {
-				si := &di.RetentionPolicies[i].ShardGroups[j].Shards[k]
+			for k := range sg.ShardInfos {
+				si := &di.RetentionPolicies[i].ShardGroupInfos[j].ShardInfos[k]
 				shards[si.ID] = si
 			}
 		}
@@ -1163,17 +1163,17 @@ func (s *RetentionPolicySpec) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// RetentionPolicyInfo represents metadata about a retention policy.
+// metadata about a retention policy.
 type RetentionPolicyInfo struct {
 	Name               string
 	ReplicaN           int
-	Duration           time.Duration
-	ShardGroupDuration time.Duration
-	ShardGroups        []ShardGroupInfo
+	Duration           time.Duration // 保留多少的时间
+	ShardGroupDuration time.Duration // shardGroup涵盖的时间的长度
+	ShardGroupInfos    []ShardGroupInfo
 	Subscriptions      []SubscriptionInfo
 }
 
-// NewRetentionPolicyInfo returns a new instance of RetentionPolicyInfo
+// returns a new instance of RetentionPolicyInfo
 // with default replication and duration.
 func NewRetentionPolicyInfo(name string) *RetentionPolicyInfo {
 	return &RetentionPolicyInfo{
@@ -1220,28 +1220,28 @@ func (rpi *RetentionPolicyInfo) Apply(spec *RetentionPolicySpec) *RetentionPolic
 	return rp
 }
 
-// ShardGroupByTimestamp returns the shard group in the policy that contains the timestamp,
+// returns the shard group in the policy that contains the timestamp,
 // or nil if no shard group matches.
-func (rpi *RetentionPolicyInfo) ShardGroupByTimestamp(timestamp time.Time) *ShardGroupInfo {
-	for i := range rpi.ShardGroups {
-		sgi := &rpi.ShardGroups[i]
-		if sgi.Contains(timestamp) && !sgi.Deleted() && (!sgi.Truncated() || timestamp.Before(sgi.TruncatedAt)) {
-			return &rpi.ShardGroups[i]
+func (rpi *RetentionPolicyInfo) GetShardGroupByTs(timestamp time.Time) *ShardGroupInfo {
+	for i := range rpi.ShardGroupInfos {
+		shardGroupInfo := &rpi.ShardGroupInfos[i]
+		if shardGroupInfo.Contains(timestamp) && !shardGroupInfo.Deleted() && (!shardGroupInfo.Truncated() || timestamp.Before(shardGroupInfo.TruncatedAt)) {
+			return &rpi.ShardGroupInfos[i]
 		}
 	}
 
 	return nil
 }
 
-// ExpiredShardGroups returns the Shard Groups which are considered expired, for the given time.
+// returns the Shard Groups which are considered expired, for the given time.
 func (rpi *RetentionPolicyInfo) ExpiredShardGroups(t time.Time) []*ShardGroupInfo {
 	var groups = make([]*ShardGroupInfo, 0)
-	for i := range rpi.ShardGroups {
-		if rpi.ShardGroups[i].Deleted() {
+	for i := range rpi.ShardGroupInfos {
+		if rpi.ShardGroupInfos[i].Deleted() {
 			continue
 		}
-		if rpi.Duration != 0 && rpi.ShardGroups[i].EndTime.Add(rpi.Duration).Before(t) {
-			groups = append(groups, &rpi.ShardGroups[i])
+		if rpi.Duration != 0 && rpi.ShardGroupInfos[i].EndTime.Add(rpi.Duration).Before(t) {
+			groups = append(groups, &rpi.ShardGroupInfos[i])
 		}
 	}
 	return groups
@@ -1250,9 +1250,9 @@ func (rpi *RetentionPolicyInfo) ExpiredShardGroups(t time.Time) []*ShardGroupInf
 // DeletedShardGroups returns the Shard Groups which are marked as deleted.
 func (rpi *RetentionPolicyInfo) DeletedShardGroups() []*ShardGroupInfo {
 	var groups = make([]*ShardGroupInfo, 0)
-	for i := range rpi.ShardGroups {
-		if rpi.ShardGroups[i].Deleted() {
-			groups = append(groups, &rpi.ShardGroups[i])
+	for i := range rpi.ShardGroupInfos {
+		if rpi.ShardGroupInfos[i].Deleted() {
+			groups = append(groups, &rpi.ShardGroupInfos[i])
 		}
 	}
 	return groups
@@ -1267,8 +1267,8 @@ func (rpi *RetentionPolicyInfo) marshal() *internal.RetentionPolicyInfo {
 		ShardGroupDuration: proto.Int64(int64(rpi.ShardGroupDuration)),
 	}
 
-	pb.ShardGroups = make([]*internal.ShardGroupInfo, len(rpi.ShardGroups))
-	for i, sgi := range rpi.ShardGroups {
+	pb.ShardGroups = make([]*internal.ShardGroupInfo, len(rpi.ShardGroupInfos))
+	for i, sgi := range rpi.ShardGroupInfos {
 		pb.ShardGroups[i] = sgi.marshal()
 	}
 
@@ -1288,9 +1288,9 @@ func (rpi *RetentionPolicyInfo) unmarshal(pb *internal.RetentionPolicyInfo) {
 	rpi.ShardGroupDuration = time.Duration(pb.GetShardGroupDuration())
 
 	if len(pb.GetShardGroups()) > 0 {
-		rpi.ShardGroups = make([]ShardGroupInfo, len(pb.GetShardGroups()))
+		rpi.ShardGroupInfos = make([]ShardGroupInfo, len(pb.GetShardGroups()))
 		for i, x := range pb.GetShardGroups() {
-			rpi.ShardGroups[i].unmarshal(x)
+			rpi.ShardGroupInfos[i].unmarshal(x)
 		}
 	}
 	if len(pb.GetSubscriptions()) > 0 {
@@ -1305,10 +1305,10 @@ func (rpi *RetentionPolicyInfo) unmarshal(pb *internal.RetentionPolicyInfo) {
 func (rpi RetentionPolicyInfo) clone() RetentionPolicyInfo {
 	other := rpi
 
-	if rpi.ShardGroups != nil {
-		other.ShardGroups = make([]ShardGroupInfo, len(rpi.ShardGroups))
-		for i := range rpi.ShardGroups {
-			other.ShardGroups[i] = rpi.ShardGroups[i].clone()
+	if rpi.ShardGroupInfos != nil {
+		other.ShardGroupInfos = make([]ShardGroupInfo, len(rpi.ShardGroupInfos))
+		for i := range rpi.ShardGroupInfos {
+			other.ShardGroupInfos[i] = rpi.ShardGroupInfos[i].clone()
 		}
 	}
 
@@ -1363,7 +1363,7 @@ type ShardGroupInfo struct {
 	StartTime   time.Time
 	EndTime     time.Time
 	DeletedAt   time.Time
-	Shards      []ShardInfo
+	ShardInfos  []ShardInfo
 	TruncatedAt time.Time
 }
 
@@ -1397,97 +1397,97 @@ func (a ShardGroupInfos) Less(i, j int) bool {
 }
 
 // Contains returns true iif StartTime ≤ t < EndTime.
-func (sgi *ShardGroupInfo) Contains(t time.Time) bool {
-	return !t.Before(sgi.StartTime) && t.Before(sgi.EndTime)
+func (shardGroupInfo *ShardGroupInfo) Contains(t time.Time) bool {
+	return !t.Before(shardGroupInfo.StartTime) && t.Before(shardGroupInfo.EndTime)
 }
 
 // Overlaps returns whether the shard group contains data for the time range between min and max
-func (sgi *ShardGroupInfo) Overlaps(min, max time.Time) bool {
-	return !sgi.StartTime.After(max) && sgi.EndTime.After(min)
+func (shardGroupInfo *ShardGroupInfo) Overlaps(min, max time.Time) bool {
+	return !shardGroupInfo.StartTime.After(max) && shardGroupInfo.EndTime.After(min)
 }
 
 // Deleted returns whether this ShardGroup has been deleted.
-func (sgi *ShardGroupInfo) Deleted() bool {
-	return !sgi.DeletedAt.IsZero()
+func (shardGroupInfo *ShardGroupInfo) Deleted() bool {
+	return !shardGroupInfo.DeletedAt.IsZero()
 }
 
 // Truncated returns true if this ShardGroup has been truncated (no new writes).
-func (sgi *ShardGroupInfo) Truncated() bool {
-	return !sgi.TruncatedAt.IsZero()
+func (shardGroupInfo *ShardGroupInfo) Truncated() bool {
+	return !shardGroupInfo.TruncatedAt.IsZero()
 }
 
 // clone returns a deep copy of sgi.
-func (sgi ShardGroupInfo) clone() ShardGroupInfo {
-	other := sgi
+func (shardGroupInfo ShardGroupInfo) clone() ShardGroupInfo {
+	other := shardGroupInfo
 
-	if sgi.Shards != nil {
-		other.Shards = make([]ShardInfo, len(sgi.Shards))
-		for i := range sgi.Shards {
-			other.Shards[i] = sgi.Shards[i].clone()
+	if shardGroupInfo.ShardInfos != nil {
+		other.ShardInfos = make([]ShardInfo, len(shardGroupInfo.ShardInfos))
+		for i := range shardGroupInfo.ShardInfos {
+			other.ShardInfos[i] = shardGroupInfo.ShardInfos[i].clone()
 		}
 	}
 
 	return other
 }
 
-// ShardFor returns the ShardInfo for a Point hash.
-func (sgi *ShardGroupInfo) ShardFor(p models.Point) ShardInfo {
-	if len(sgi.Shards) == 1 {
-		return sgi.Shards[0]
+// returns the ShardInfo for a Point hash.
+func (shardGroupInfo *ShardGroupInfo) ShardFor(point models.Point) ShardInfo {
+	if len(shardGroupInfo.ShardInfos) == 1 {
+		return shardGroupInfo.ShardInfos[0]
 	}
 
-	return sgi.Shards[p.HashID()%uint64(len(sgi.Shards))]
+	return shardGroupInfo.ShardInfos[point.HashID()%uint64(len(shardGroupInfo.ShardInfos))]
 }
 
 // marshal serializes to a protobuf representation.
-func (sgi *ShardGroupInfo) marshal() *internal.ShardGroupInfo {
+func (shardGroupInfo *ShardGroupInfo) marshal() *internal.ShardGroupInfo {
 	pb := &internal.ShardGroupInfo{
-		ID:        proto.Uint64(sgi.ID),
-		StartTime: proto.Int64(MarshalTime(sgi.StartTime)),
-		EndTime:   proto.Int64(MarshalTime(sgi.EndTime)),
-		DeletedAt: proto.Int64(MarshalTime(sgi.DeletedAt)),
+		ID:        proto.Uint64(shardGroupInfo.ID),
+		StartTime: proto.Int64(MarshalTime(shardGroupInfo.StartTime)),
+		EndTime:   proto.Int64(MarshalTime(shardGroupInfo.EndTime)),
+		DeletedAt: proto.Int64(MarshalTime(shardGroupInfo.DeletedAt)),
 	}
 
-	if !sgi.TruncatedAt.IsZero() {
-		pb.TruncatedAt = proto.Int64(MarshalTime(sgi.TruncatedAt))
+	if !shardGroupInfo.TruncatedAt.IsZero() {
+		pb.TruncatedAt = proto.Int64(MarshalTime(shardGroupInfo.TruncatedAt))
 	}
 
-	pb.Shards = make([]*internal.ShardInfo, len(sgi.Shards))
-	for i := range sgi.Shards {
-		pb.Shards[i] = sgi.Shards[i].marshal()
+	pb.Shards = make([]*internal.ShardInfo, len(shardGroupInfo.ShardInfos))
+	for i := range shardGroupInfo.ShardInfos {
+		pb.Shards[i] = shardGroupInfo.ShardInfos[i].marshal()
 	}
 
 	return pb
 }
 
 // unmarshal deserializes from a protobuf representation.
-func (sgi *ShardGroupInfo) unmarshal(pb *internal.ShardGroupInfo) {
-	sgi.ID = pb.GetID()
+func (shardGroupInfo *ShardGroupInfo) unmarshal(pb *internal.ShardGroupInfo) {
+	shardGroupInfo.ID = pb.GetID()
 	if i := pb.GetStartTime(); i == 0 {
-		sgi.StartTime = time.Unix(0, 0).UTC()
+		shardGroupInfo.StartTime = time.Unix(0, 0).UTC()
 	} else {
-		sgi.StartTime = UnmarshalTime(i)
+		shardGroupInfo.StartTime = UnmarshalTime(i)
 	}
 	if i := pb.GetEndTime(); i == 0 {
-		sgi.EndTime = time.Unix(0, 0).UTC()
+		shardGroupInfo.EndTime = time.Unix(0, 0).UTC()
 	} else {
-		sgi.EndTime = UnmarshalTime(i)
+		shardGroupInfo.EndTime = UnmarshalTime(i)
 	}
-	sgi.DeletedAt = UnmarshalTime(pb.GetDeletedAt())
+	shardGroupInfo.DeletedAt = UnmarshalTime(pb.GetDeletedAt())
 
 	if pb != nil && pb.TruncatedAt != nil {
-		sgi.TruncatedAt = UnmarshalTime(pb.GetTruncatedAt())
+		shardGroupInfo.TruncatedAt = UnmarshalTime(pb.GetTruncatedAt())
 	}
 
 	if len(pb.GetShards()) > 0 {
-		sgi.Shards = make([]ShardInfo, len(pb.GetShards()))
+		shardGroupInfo.ShardInfos = make([]ShardInfo, len(pb.GetShards()))
 		for i, x := range pb.GetShards() {
-			sgi.Shards[i].unmarshal(x)
+			shardGroupInfo.ShardInfos[i].unmarshal(x)
 		}
 	}
 }
 
-// ShardInfo represents metadata about a shard.
+// represents metadata about a shard.
 type ShardInfo struct {
 	ID     uint64
 	Owners []ShardOwner

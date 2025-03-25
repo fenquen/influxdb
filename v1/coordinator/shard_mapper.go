@@ -87,9 +87,9 @@ func (e *LocalShardMapper) mapShards(ctx context.Context, a *LocalShardMapping, 
 					continue
 				}
 
-				shardIDs := make([]uint64, 0, len(groups[0].Shards)*len(groups))
+				shardIDs := make([]uint64, 0, len(groups[0].ShardInfos)*len(groups))
 				for _, g := range groups {
-					for _, si := range g.Shards {
+					for _, si := range g.ShardInfos {
 						shardIDs = append(shardIDs, si.ID)
 					}
 				}

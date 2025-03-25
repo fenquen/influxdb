@@ -218,3 +218,207 @@ testing required for forked pull requests will be determined as part of the revi
 - [InfluxDB Tips and Tutorials](https://www.influxdata.com/blog/category/tech/influxdb/)
 - [InfluxDB Essentials Course](https://university.influxdata.com/courses/influxdb-essentials-tutorial/)
 - [Exploring InfluxDB Cloud Course](https://university.influxdata.com/courses/exploring-influxdb-cloud-tutorial/)
+
+
+
+
+
+```text
+InfluxDB 的存储架构可大致分为多个层级，
+高到低依次为：组织（Organization）、存储桶（Bucket）、分片组（Shard Group）、分片（Shard）和存储引擎 engine
+```
+```xml
+<component name="BookmarksManager">
+    <option name="groups">
+      <GroupState>
+        <option name="bookmarks">
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/http/write_handler.go" />
+              <entry key="line" value="139" />
+            </attributes>
+            <option name="description" value="defer span.Finish()" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/http/write_handler.go" />
+              <entry key="line" value="138" />
+            </attributes>
+            <option name="description" value="span, r := tracing.ExtractFromHTTPRequest(r, &quot;WriteHandler&quot;)" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/http/write_handler.go" />
+              <entry key="line" value="148" />
+            </attributes>
+            <option name="description" value="http读取写入得到writeReq" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/http/write_handler.go" />
+              <entry key="line" value="184" />
+            </attributes>
+            <option name="description" value="parse写入的point" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/http/write_handler.go" />
+              <entry key="line" value="191" />
+            </attributes>
+            <option name="description" value="写入点位" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/storage/points_writer.go" />
+              <entry key="line" value="37" />
+            </attributes>
+            <option name="description" value="-写入点位" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/storage/engine.go" />
+              <entry key="line" value="277" />
+            </attributes>
+            <option name="description" value="--写入点位" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/coordinator/points_writer.go" />
+              <entry key="line" value="363" />
+            </attributes>
+            <option name="description" value="---写入点位" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/coordinator/points_writer.go" />
+              <entry key="line" value="383" />
+            </attributes>
+            <option name="description" value="----map2Shards" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/coordinator/points_writer.go" />
+              <entry key="line" value="238" />
+            </attributes>
+            <option name="description" value="-----createShardGroup" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/services/meta/client.go" />
+              <entry key="line" value="726" />
+            </attributes>
+            <option name="description" value="------CreateShardGroupWithShards" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/services/meta/client.go" />
+              <entry key="line" value="713" />
+            </attributes>
+            <option name="description" value="-------createShardGroup" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/services/meta/client.go" />
+              <entry key="line" value="735" />
+            </attributes>
+            <option name="description" value="--------CreateShardGroup" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/coordinator/points_writer.go" />
+              <entry key="line" value="392" />
+            </attributes>
+            <option name="description" value="----writeToShard" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/coordinator/points_writer.go" />
+              <entry key="line" value="442" />
+            </attributes>
+            <option name="description" value="-----CreateShard" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/tsdb/store.go" />
+              <entry key="line" value="693" />
+            </attributes>
+            <option name="description" value="------openSeriesFile" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/tsdb/store.go" />
+              <entry key="line" value="707" />
+            </attributes>
+            <option name="description" value="------OpenShard" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/tsdb/store.go" />
+              <entry key="line" value="609" />
+            </attributes>
+            <option name="description" value="-------shard.Open(ctx)" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/tsdb/shard.go" />
+              <entry key="line" value="368" />
+            </attributes>
+            <option name="description" value="--------shard.openNoLock(ctx)" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/tsdb/shard.go" />
+              <entry key="line" value="426" />
+            </attributes>
+            <option name="description" value="---------engine.Open(ctx)" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/v1/coordinator/points_writer.go" />
+              <entry key="line" value="447" />
+            </attributes>
+            <option name="description" value="-----WriteToShard" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/tsdb/store.go" />
+              <entry key="line" value="1595" />
+            </attributes>
+            <option name="description" value="------shard.WritePoints(ctx, points)" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+          <BookmarkState>
+            <attributes>
+              <entry key="url" value="file://$PROJECT_DIR$/tsdb/shard.go" />
+              <entry key="line" value="678" />
+            </attributes>
+            <option name="description" value="-------engine.WritePoints(ctx, points); err != nil {" />
+            <option name="provider" value="com.intellij.ide.bookmark.providers.LineBookmarkProvider" />
+          </BookmarkState>
+        </option>
+        <option name="name" value="write" />
+      </GroupState>
+    </option>
+  </component>
+```

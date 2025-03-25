@@ -110,11 +110,11 @@ type Engine struct {
 
 	fieldset *tsdb.MeasurementFieldSet
 
-	WAL            *WAL
-	Cache          *Cache
-	Compactor      *Compactor
-	CompactionPlan CompactionPlanner
-	FileStore      *FileStore
+	WAL               *WAL
+	Cache             *Cache
+	Compactor         *Compactor
+	CompactionPlanner CompactionPlanner
+	FileStore         *FileStore
 
 	MaxPointsPerBlock int
 
@@ -181,10 +181,10 @@ func NewEngine(id uint64, idx tsdb.Index, path string, walPath string, sfile *ts
 
 	cache := NewCache(uint64(engineOptions.Config.CacheMaxMemorySize), etags)
 
-	c := NewCompactor()
-	c.Dir = path
-	c.FileStore = fs
-	c.RateLimit = engineOptions.CompactionThroughputLimiter
+	compactor := NewCompactor()
+	compactor.Dir = path
+	compactor.FileStore = fs
+	compactor.RateLimit = engineOptions.CompactionThroughputLimiter
 
 	var compactionPlanner CompactionPlanner = NewDefaultPlanner(fs, time.Duration(engineOptions.Config.CompactFullWriteColdDuration))
 	if engineOptions.CompactionPlannerCreator != nil {
@@ -206,9 +206,9 @@ func NewEngine(id uint64, idx tsdb.Index, path string, walPath string, sfile *ts
 		WAL:   wal,
 		Cache: cache,
 
-		FileStore:      fs,
-		Compactor:      c,
-		CompactionPlan: compactionPlanner,
+		FileStore:         fs,
+		Compactor:         compactor,
+		CompactionPlanner: compactionPlanner,
 
 		activeCompactions: activeCompactions,
 		scheduler:         newScheduler(activeCompactions, engineOptions.CompactionLimiter.Capacity()),
@@ -523,7 +523,7 @@ func (engine *Engine) ScheduleFullCompaction() error {
 	defer engine.SetCompactionsEnabled(true)
 
 	// Force the planner to only create a full plan.
-	engine.CompactionPlan.ForceFull()
+	engine.CompactionPlanner.ForceFull()
 	return nil
 }
 
@@ -709,7 +709,7 @@ func (engine *Engine) DiskSize() int64 {
 	return engine.FileStore.DiskSizeBytes() + walDiskSizeBytes
 }
 
-// Open opens and initializes the engine.
+// opens and initializes the engine.
 func (engine *Engine) Open(ctx context.Context) error {
 	if err := os.MkdirAll(engine.path, 0777); err != nil {
 		return err
@@ -903,7 +903,7 @@ func (engine *Engine) IsIdle() (state bool, reason string) {
 
 	if cacheSize := engine.Cache.Size(); cacheSize > 0 {
 		return false, "not idle because cache size is nonzero"
-	} else if c, r := engine.CompactionPlan.FullyCompacted(); !c {
+	} else if c, r := engine.CompactionPlanner.FullyCompacted(); !c {
 		return false, r
 	} else {
 		return true, ""
@@ -2007,16 +2007,16 @@ func (engine *Engine) compact(wg *sync.WaitGroup) {
 		case <-t.C:
 
 			// Find our compaction plans
-			level1Groups, len1 := engine.CompactionPlan.PlanLevel(1)
-			level2Groups, len2 := engine.CompactionPlan.PlanLevel(2)
-			level3Groups, len3 := engine.CompactionPlan.PlanLevel(3)
-			level4Groups, len4 := engine.CompactionPlan.Plan(engine.LastModified())
+			level1Groups, len1 := engine.CompactionPlanner.PlanLevel(1)
+			level2Groups, len2 := engine.CompactionPlanner.PlanLevel(2)
+			level3Groups, len3 := engine.CompactionPlanner.PlanLevel(3)
+			level4Groups, len4 := engine.CompactionPlanner.Plan(engine.LastModified())
 
 			engine.stats.Queued.With(prometheus.Labels{levelKey: levelFull}).Set(float64(len4))
 
 			// If no full compactions are need, see if an optimize is needed
 			if len(level4Groups) == 0 {
-				level4Groups, len4 = engine.CompactionPlan.PlanOptimize()
+				level4Groups, len4 = engine.CompactionPlanner.PlanOptimize()
 				engine.stats.Queued.With(prometheus.Labels{levelKey: levelOpt}).Set(float64(len4))
 			}
 
@@ -2058,10 +2058,10 @@ func (engine *Engine) compact(wg *sync.WaitGroup) {
 			}
 
 			// Release all the plans we didn't start.
-			engine.CompactionPlan.Release(level1Groups)
-			engine.CompactionPlan.Release(level2Groups)
-			engine.CompactionPlan.Release(level3Groups)
-			engine.CompactionPlan.Release(level4Groups)
+			engine.CompactionPlanner.Release(level1Groups)
+			engine.CompactionPlanner.Release(level2Groups)
+			engine.CompactionPlanner.Release(level3Groups)
+			engine.CompactionPlanner.Release(level4Groups)
 		}
 	}
 }
@@ -2091,7 +2091,7 @@ func (engine *Engine) compactLevel(grp CompactionGroup, level int, fast bool, wg
 			defer engine.compactionLimiter.Release()
 			s.Apply()
 			// Release the files in the compaction plan
-			engine.CompactionPlan.Release([]CompactionGroup{s.group})
+			engine.CompactionPlanner.Release([]CompactionGroup{s.group})
 		}()
 		return true
 	}
@@ -2124,7 +2124,7 @@ func (engine *Engine) compactFull(grp CompactionGroup, wg *sync.WaitGroup) bool 
 			defer engine.compactionLimiter.Release()
 			compactionStrategy.Apply()
 			// Release the files in the compaction plan
-			engine.CompactionPlan.Release([]CompactionGroup{compactionStrategy.group})
+			engine.CompactionPlanner.Release([]CompactionGroup{compactionStrategy.group})
 		}()
 		return true
 	}

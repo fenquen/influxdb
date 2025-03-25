@@ -594,7 +594,7 @@ func (statementExecutor *StatementExecutor) executeShowTagKeys(ctx context.Conte
 
 	var shardIDs []uint64
 	for _, sgi := range allGroups {
-		for _, si := range sgi.Shards {
+		for _, si := range sgi.ShardInfos {
 			shardIDs = append(shardIDs, si.ID)
 		}
 	}
@@ -686,7 +686,7 @@ func (statementExecutor *StatementExecutor) executeShowTagValues(ctx context.Con
 
 	var shardIDs []uint64
 	for _, sgi := range allGroups {
-		for _, si := range sgi.Shards {
+		for _, si := range sgi.ShardInfos {
 			shardIDs = append(shardIDs, si.ID)
 		}
 	}

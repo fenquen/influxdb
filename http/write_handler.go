@@ -112,11 +112,11 @@ func NewWriteHandler(log *zap.Logger, b *WriteBackend, opts ...WriteHandlerOptio
 	return h
 }
 
-func (h *WriteHandler) findBucket(ctx context.Context, orgID platform.ID, bucket string) (*influxdb.Bucket, error) {
-	if id, err := platform.IDFromString(bucket); err == nil {
+func (h *WriteHandler) findBucket(ctx context.Context, orgID platform.ID, bucketName string) (*influxdb.Bucket, error) {
+	if bucketId, err := platform.IDFromString(bucketName); err == nil {
 		b, err := h.BucketService.FindBucket(ctx, influxdb.BucketFilter{
 			OrganizationID: &orgID,
-			ID:             id,
+			ID:             bucketId,
 		})
 		if err != nil && errors.ErrorCode(err) != errors.ENotFound {
 			return nil, err
@@ -127,7 +127,7 @@ func (h *WriteHandler) findBucket(ctx context.Context, orgID platform.ID, bucket
 
 	return h.BucketService.FindBucket(ctx, influxdb.BucketFilter{
 		OrganizationID: &orgID,
-		Name:           &bucket,
+		Name:           &bucketName,
 	})
 }
 
@@ -146,7 +146,7 @@ func (h *WriteHandler) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := decodeWriteRequest(ctx, r, h.maxBatchSizeBytes)
+	writeReq, err := decodeWriteRequest(r, h.maxBatchSizeBytes)
 	if err != nil {
 		h.HandleHTTPError(ctx, err, w)
 		return
@@ -159,44 +159,44 @@ func (h *WriteHandler) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	span.LogKV("org_id", org.ID)
 
-	sw := kithttp.NewStatusResponseWriter(w)
-	recorder := NewWriteUsageRecorder(sw, h.EventRecorder)
+	statusWriter := kithttp.NewStatusResponseWriter(w)
+	recorder := NewWriteUsageRecorder(statusWriter, h.EventRecorder)
 	var requestBytes int
 	defer func() {
 		// Close around the requestBytes variable to placate the linter.
 		recorder.Record(ctx, requestBytes, org.ID, r.URL.Path)
 	}()
 
-	bucket, err := h.findBucket(ctx, org.ID, req.Bucket)
+	bucket, err := h.findBucket(ctx, org.ID, writeReq.Bucket)
 	if err != nil {
-		h.HandleHTTPError(ctx, err, sw)
+		h.HandleHTTPError(ctx, err, statusWriter)
 		return
 	}
 	span.LogKV("bucket_id", bucket.ID)
 
-	if err := checkBucketWritePermissions(auth, org.ID, bucket.ID); err != nil {
-		h.HandleHTTPError(ctx, err, sw)
+	if err = checkBucketWritePermissions(auth, org.ID, bucket.ID); err != nil {
+		h.HandleHTTPError(ctx, err, statusWriter)
 		return
 	}
 
 	// TODO: Backport?
 	//opts := append([]models.ParserOption{}, h.parserOptions...)
-	//opts = append(opts, models.WithParserPrecision(req.Precision))
-	parsed, err := points.NewParser(req.Precision).Parse(ctx, org.ID, bucket.ID, req.Body)
+	//opts = append(opts, models.WithParserPrecision(writeReq.Precision))
+	parsedPoints, err := points.NewParser(writeReq.Precision).Parse(ctx, writeReq.Body)
 	if err != nil {
-		h.HandleHTTPError(ctx, err, sw)
+		h.HandleHTTPError(ctx, err, statusWriter)
 		return
 	}
-	requestBytes = parsed.RawSize
+	requestBytes = parsedPoints.RawSize
 
-	if err := h.PointsWriter.WritePoints(ctx, org.ID, bucket.ID, parsed.Points); err != nil {
+	if err := h.PointsWriter.WritePoints(ctx, org.ID, bucket.ID, parsedPoints.Points); err != nil {
 		if partialErr, ok := err.(tsdb.PartialWriteError); ok {
 			h.HandleHTTPError(ctx, &errors.Error{
 				Code: errors.EUnprocessableEntity,
 				Op:   opWriteHandler,
 				Msg:  "failure writing points to database",
 				Err:  partialErr,
-			}, sw)
+			}, statusWriter)
 			return
 		}
 
@@ -205,11 +205,11 @@ func (h *WriteHandler) handleWrite(w http.ResponseWriter, r *http.Request) {
 			Op:   opWriteHandler,
 			Msg:  "unexpected error writing points to database",
 			Err:  err,
-		}, sw)
+		}, statusWriter)
 		return
 	}
 
-	sw.WriteHeader(http.StatusNoContent)
+	statusWriter.WriteHeader(http.StatusNoContent)
 }
 
 // checkBucketWritePermissions checks an Authorizer for write permissions to a
@@ -244,9 +244,9 @@ type writeRequest struct {
 	Body      io.ReadCloser
 }
 
-// decodeWriteRequest extracts information from an http.Request object to
+// extracts information from an http.Request object to
 // produce a writeRequest.
-func decodeWriteRequest(ctx context.Context, r *http.Request, maxBatchSizeBytes int64) (*writeRequest, error) {
+func decodeWriteRequest(r *http.Request, maxBatchSizeBytes int64) (*writeRequest, error) {
 	qp := r.URL.Query()
 	precision := qp.Get("precision")
 	if precision == "" {
@@ -261,8 +261,8 @@ func decodeWriteRequest(ctx context.Context, r *http.Request, maxBatchSizeBytes 
 		}
 	}
 
-	bucket := qp.Get("bucket")
-	if bucket == "" {
+	bucketName := qp.Get(Bucket)
+	if bucketName == "" {
 		return nil, &errors.Error{
 			Code: errors.ENotFound,
 			Op:   "http/newWriteRequest",
@@ -277,8 +277,8 @@ func decodeWriteRequest(ctx context.Context, r *http.Request, maxBatchSizeBytes 
 	}
 
 	return &writeRequest{
-		Bucket:    qp.Get("bucket"),
-		Org:       qp.Get("org"),
+		Bucket:    bucketName,
+		Org:       qp.Get(Org),
 		Precision: precision,
 		Body:      body,
 	}, nil

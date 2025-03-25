@@ -133,7 +133,7 @@ func (s *Service) run(ctx context.Context) {
 				for _, r := range d.RetentionPolicies {
 					// Build list of already deleted shards.
 					for _, g := range r.DeletedShardGroups() {
-						for _, sh := range g.Shards {
+						for _, sh := range g.ShardInfos {
 							deletedShardIDs[sh.ID] = deletionInfo{db: d.Name, rp: r.Name}
 						}
 					}
@@ -156,7 +156,7 @@ func (s *Service) run(ctx context.Context) {
 							logger.RetentionPolicy(r.Name))
 
 						// Store all the shard IDs that may possibly need to be removed locally.
-						for _, sh := range g.Shards {
+						for _, sh := range g.ShardInfos {
 							deletedShardIDs[sh.ID] = deletionInfo{db: d.Name, rp: r.Name}
 						}
 					}

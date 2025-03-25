@@ -11,14 +11,14 @@ import (
 )
 
 // PointsWriter describes the ability to write points into a storage engine.
-type PointsWriter interface {
+type PointsWriter interface { // 实际是 LoggingPointsWriter 证明在launcher.go:689
 	WritePoints(ctx context.Context, orgID platform.ID, bucketID platform.ID, points []models.Point) error
 }
 
-// LoggingPointsWriter wraps an underlying points writer but writes logs to
+// wraps an underlying points writer but writes logs to
 // another bucket when an error occurs.
 type LoggingPointsWriter struct {
-	// Wrapped points writer. Errored writes from here will be logged.
+	// Wrapped points writer, 实际是engine
 	Underlying PointsWriter
 
 	// Service used to look up logging bucket.
@@ -28,19 +28,19 @@ type LoggingPointsWriter struct {
 	LogBucketName string
 }
 
-// WritePoints writes points to the underlying PointsWriter. Logs on error.
+// write points to the underlying PointsWriter
 func (w *LoggingPointsWriter) WritePoints(ctx context.Context, orgID platform.ID, bucketID platform.ID, p []models.Point) error {
 	if len(p) == 0 {
 		return nil
 	}
 
-	// Write to underlying writer and exit immediately if successful.
+	// underlying实际是engine
 	err := w.Underlying.WritePoints(ctx, orgID, bucketID, p)
 	if err == nil {
 		return nil
 	}
 
-	// Attempt to lookup log bucket.
+	// 如果失败了写入log对应的bucket的
 	bkts, n, e := w.BucketFinder.FindBuckets(ctx, influxdb.BucketFilter{
 		OrganizationID: &orgID,
 		Name:           &w.LogBucketName,

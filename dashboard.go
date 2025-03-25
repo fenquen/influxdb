@@ -124,7 +124,7 @@ func SortDashboards(opts FindOptions, ds []*Dashboard) {
 	sort.Slice(ds, sorter)
 }
 
-// Cell holds positional information about a cell on dashboard and a reference to a cell.
+// hold positional information about a cell on dashboard and a reference to a cell.
 type Cell struct {
 	ID platform.ID `json:"id,omitempty"`
 	CellProperty

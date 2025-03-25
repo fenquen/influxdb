@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// ConsistencyLevel represent a required replication criteria before a write can
+// represent a required replication criteria before a write can
 // be returned as successful.
 //
-// The consistency level is handled in open-source InfluxDB but only applicable to clusters.
+// 实际是在influx的集群有用的
 type ConsistencyLevel int
 
 const (

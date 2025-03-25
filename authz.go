@@ -34,9 +34,9 @@ type Authorizer interface {
 }
 
 // PermissionAllowed determines if a permission is allowed.
-func PermissionAllowed(perm Permission, ps []Permission) bool {
-	for _, p := range ps {
-		if p.Matches(perm) {
+func PermissionAllowed(permission Permission, authedPermissions []Permission) bool {
+	for _, p := range authedPermissions {
+		if p.Matches(permission) {
 			return true
 		}
 	}

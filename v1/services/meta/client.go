@@ -49,7 +49,7 @@ var (
 	ErrService = errors.New("meta service error")
 )
 
-// Client is used to execute commands on and read data from
+// used to execute commands on and read data from
 // a meta service cluster.
 type Client struct {
 	logger *zap.Logger
@@ -588,8 +588,8 @@ func (client *Client) ShardIDs() []uint64 {
 	var a []uint64
 	for _, dbi := range client.cacheData.Databases {
 		for _, rpi := range dbi.RetentionPolicies {
-			for _, sgi := range rpi.ShardGroups {
-				for _, si := range sgi.Shards {
+			for _, sgi := range rpi.ShardGroupInfos {
+				for _, si := range sgi.ShardInfos {
 					a = append(a, si.ID)
 				}
 			}
@@ -607,14 +607,14 @@ func (client *Client) ShardGroupsByTimeRange(database, policy string, min, max t
 	defer client.mu.RUnlock()
 
 	// Find retention policy.
-	rpi, err := client.cacheData.RetentionPolicy(database, policy)
+	rpi, err := client.cacheData.GetRetentionPolicyInfo(database, policy)
 	if err != nil {
 		return nil, err
 	} else if rpi == nil {
 		return nil, influxdb.ErrRetentionPolicyNotFound(policy)
 	}
-	groups := make([]ShardGroupInfo, 0, len(rpi.ShardGroups))
-	for _, g := range rpi.ShardGroups {
+	groups := make([]ShardGroupInfo, 0, len(rpi.ShardGroupInfos))
+	for _, g := range rpi.ShardGroupInfos {
 		if g.Deleted() || !g.Overlaps(min, max) {
 			continue
 		}
@@ -632,8 +632,8 @@ func (client *Client) ShardsByTimeRange(sources influxql.Sources, tmin, tmax tim
 			return nil, err
 		}
 		for _, g := range groups {
-			for i := range g.Shards {
-				m[&g.Shards[i]] = struct{}{}
+			for i := range g.ShardInfos {
+				m[&g.ShardInfos[i]] = struct{}{}
 			}
 		}
 	}
@@ -676,14 +676,14 @@ func (client *Client) PruneShardGroups() error {
 	for i, d := range data.Databases {
 		for j, rp := range d.RetentionPolicies {
 			var remainingShardGroups []ShardGroupInfo
-			for _, sgi := range rp.ShardGroups {
+			for _, sgi := range rp.ShardGroupInfos {
 				if sgi.DeletedAt.IsZero() || !expiration.After(sgi.DeletedAt) {
 					remainingShardGroups = append(remainingShardGroups, sgi)
 					continue
 				}
 				changed = true
 			}
-			data.Databases[i].RetentionPolicies[j].ShardGroups = remainingShardGroups
+			data.Databases[i].RetentionPolicies[j].ShardGroupInfos = remainingShardGroups
 		}
 	}
 	if changed {
@@ -692,60 +692,60 @@ func (client *Client) PruneShardGroups() error {
 	return nil
 }
 
-// CreateShardGroupWithShards creates a shard group on a database and policy for a given timestamp and assign shards to the shard group
-func (client *Client) CreateShardGroupWithShards(database, policy string, timestamp time.Time, shards []ShardInfo) (*ShardGroupInfo, error) {
-	// Check under a read-lock
+// creates a shard group on a database and policy for a given timestamp and assign shards to the shard group
+func (client *Client) CreateShardGroupWithShards(bucketIdStr, retentionPolicy string, timestamp time.Time, shardInfos []ShardInfo) (*ShardGroupInfo, error) {
+	// check cache under a read lock
 	client.mu.RLock()
-	if sg, _ := client.cacheData.ShardGroupByTimestamp(database, policy, timestamp); sg != nil {
+	if shardGroupInfo, _ := client.cacheData.ShardGroupByTimestamp(bucketIdStr, retentionPolicy, timestamp); shardGroupInfo != nil {
 		client.mu.RUnlock()
-		return sg, nil
+		return shardGroupInfo, nil
 	}
 	client.mu.RUnlock()
 
 	client.mu.Lock()
 	defer client.mu.Unlock()
 
-	// Check again under the write lock
-	data := client.cacheData.Clone()
-	if sg, _ := data.ShardGroupByTimestamp(database, policy, timestamp); sg != nil {
-		return sg, nil
+	// check cache again under the write lock
+	cacheData := client.cacheData.Clone()
+	if shardGroupInfo, _ := cacheData.ShardGroupByTimestamp(bucketIdStr, retentionPolicy, timestamp); shardGroupInfo != nil {
+		return shardGroupInfo, nil
 	}
 
-	sgi, err := createShardGroup(data, database, policy, timestamp, shards...)
+	shardGroupInfo, err := createShardGroup(cacheData, bucketIdStr, retentionPolicy, timestamp, shardInfos...)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := client.commit(data); err != nil {
+	if err = client.commit(cacheData); err != nil { // 写到了kv, meta是整体更新的
 		return nil, err
 	}
 
-	return sgi, nil
+	return shardGroupInfo, nil
 }
 
-func (client *Client) CreateShardGroup(database, policy string, timestamp time.Time) (*ShardGroupInfo, error) {
-	return client.CreateShardGroupWithShards(database, policy, timestamp, nil)
+func (client *Client) CreateShardGroup(bucketIdStr, retentionPolicyName string, timestamp time.Time) (*ShardGroupInfo, error) {
+	return client.CreateShardGroupWithShards(bucketIdStr, retentionPolicyName, timestamp, nil)
 }
 
-func createShardGroup(data *Data, database, policy string, timestamp time.Time, shards ...ShardInfo) (*ShardGroupInfo, error) {
+func createShardGroup(data *Data, bucketIdStr, retentionPolicyName string, timestamp time.Time, shards ...ShardInfo) (*ShardGroupInfo, error) {
 	// It is the responsibility of the caller to check if it exists before calling this method.
-	if sg, _ := data.ShardGroupByTimestamp(database, policy, timestamp); sg != nil {
+	if shardGroupInfo, _ := data.ShardGroupByTimestamp(bucketIdStr, retentionPolicyName, timestamp); shardGroupInfo != nil {
 		return nil, ErrShardGroupExists
 	}
-
-	if err := data.CreateShardGroup(database, policy, timestamp, shards...); err != nil {
+	// 生成shardGroupInfo,然后向retentionPolicy麾下的infos追加shardGroupInfo
+	if err := data.CreateShardGroup(bucketIdStr, retentionPolicyName, timestamp, shards...); err != nil {
 		return nil, err
 	}
 
-	rpi, err := data.RetentionPolicy(database, policy)
+	retentionPolicyInfo, err := data.GetRetentionPolicyInfo(bucketIdStr, retentionPolicyName)
 	if err != nil {
 		return nil, err
-	} else if rpi == nil {
+	} else if retentionPolicyInfo == nil {
 		return nil, errors.New("retention policy deleted after shard group created")
 	}
 
-	sgi := rpi.ShardGroupByTimestamp(timestamp)
-	return sgi, nil
+	shardGroupInfo := retentionPolicyInfo.GetShardGroupByTs(timestamp) // 哪个的起止时间能涵盖timestamp
+	return shardGroupInfo, nil
 }
 
 // DeleteShardGroup removes a shard group from a database and retention policy by id.
@@ -778,11 +778,11 @@ func (client *Client) PrecreateShardGroups(from, to time.Time) error {
 
 	for _, databaseInfo := range data.Databases {
 		for _, retentionPolicy := range databaseInfo.RetentionPolicies {
-			if len(retentionPolicy.ShardGroups) == 0 {
+			if len(retentionPolicy.ShardGroupInfos) == 0 {
 				// No data was ever written to this group, or all groups have been deleted.
 				continue
 			}
-			shardGroupInfo := retentionPolicy.ShardGroups[len(retentionPolicy.ShardGroups)-1] // Get the last group in time.
+			shardGroupInfo := retentionPolicy.ShardGroupInfos[len(retentionPolicy.ShardGroupInfos)-1] // Get the last group in time.
 			if !shardGroupInfo.Deleted() && shardGroupInfo.EndTime.Before(to) && shardGroupInfo.EndTime.After(from) {
 				// Group is not deleted, will end before the future time, but is still yet to expire.
 				// This last check is important, so the system doesn't create shards groups wholly
@@ -829,12 +829,12 @@ func (client *Client) ShardOwner(shardID uint64) (database, policy string, sgi *
 
 	for _, dbi := range client.cacheData.Databases {
 		for _, rpi := range dbi.RetentionPolicies {
-			for _, g := range rpi.ShardGroups {
+			for _, g := range rpi.ShardGroupInfos {
 				if g.Deleted() {
 					continue
 				}
 
-				for _, sh := range g.Shards {
+				for _, sh := range g.ShardInfos {
 					if sh.ID == shardID {
 						database = dbi.Name
 						policy = rpi.Name

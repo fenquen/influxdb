@@ -517,8 +517,8 @@ type Measurement struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database        *string `protobuf:"bytes,1,opt,name=Database" json:"Database,omitempty"`
-	RetentionPolicy *string `protobuf:"bytes,2,opt,name=RetentionPolicy" json:"RetentionPolicy,omitempty"`
+	Database        *string `protobuf:"bytes,1,opt,name=BucketIdStr" json:"BucketIdStr,omitempty"`
+	RetentionPolicy *string `protobuf:"bytes,2,opt,name=RetentionPolicyName" json:"RetentionPolicyName,omitempty"`
 	Name            *string `protobuf:"bytes,3,opt,name=Name" json:"Name,omitempty"`
 	Regex           *string `protobuf:"bytes,4,opt,name=Regex" json:"Regex,omitempty"`
 	IsTarget        *bool   `protobuf:"varint,5,opt,name=IsTarget" json:"IsTarget,omitempty"`

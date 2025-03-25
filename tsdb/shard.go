@@ -391,52 +391,52 @@ func (shard *Shard) openNoLock(ctx context.Context) (bool, error) {
 		seriesIDSet := NewSeriesIDSet()
 
 		// Initialize underlying index.
-		ipath := filepath.Join(shard.path, "index")
-		idx, err := NewIndex(shard.id, shard.database, ipath, seriesIDSet, shard.sfile, shard.options)
+		indexPath := filepath.Join(shard.path, "index")
+		index, err := NewIndex(shard.id, shard.database, indexPath, seriesIDSet, shard.sfile, shard.options)
 		if err != nil {
 			return err
 		}
-		idx.WithLogger(shard.baseLogger)
+		index.WithLogger(shard.baseLogger)
 
 		// Check if the index needs to be rebuilt before Open() initializes
 		// its file system layout.
 		var shouldReindex bool
-		if _, err := os.Stat(ipath); os.IsNotExist(err) {
+		if _, err = os.Stat(indexPath); os.IsNotExist(err) {
 			shouldReindex = true
 		}
 
 		// Open index.
-		if err := idx.Open(); err != nil {
+		if err = index.Open(); err != nil {
 			return err
 		}
-		shard.index = idx
+		shard.index = index
 
 		// Initialize underlying engine.
-		e, err := NewEngine(shard.id, idx, shard.path, shard.walPath, shard.sfile, shard.options)
+		engine, err := NewEngine(shard.id, index, shard.path, shard.walPath, shard.sfile, shard.options)
 		if err != nil {
 			return err
 		}
 
 		// Set log output on the engine.
-		e.WithLogger(shard.baseLogger)
+		engine.WithLogger(shard.baseLogger)
 
 		// Disable compactions while loading the index
-		e.SetEnabled(false)
+		engine.SetEnabled(false)
 
-		// Open engine.
-		if err := e.Open(ctx); err != nil {
+		// Open engine
+		if err = engine.Open(ctx); err != nil {
 			return err
 		}
 		if shouldReindex {
-			if err := e.Reindex(); err != nil {
+			if err = engine.Reindex(); err != nil {
 				return err
 			}
 		}
 
-		if err := e.LoadMetadataIndex(shard.id, shard.index); err != nil {
+		if err = engine.LoadMetadataIndex(shard.id, shard.index); err != nil {
 			return err
 		}
-		shard._engine = e
+		shard._engine = engine
 
 		// Set up metric collection
 		metricUpdater := &ticker{
@@ -641,7 +641,7 @@ type FieldCreate struct {
 	Field       *Field
 }
 
-// WritePoints will write the raw data points and any new metadata to the index in the shard.
+// will write the raw data points and any new metadata to the index in the shard
 func (shard *Shard) WritePoints(ctx context.Context, points []models.Point) (rErr error) {
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
@@ -671,12 +671,12 @@ func (shard *Shard) WritePoints(ctx context.Context, points []models.Point) (rEr
 	shard.stats.fieldsCreated.Add(float64(len(fieldsToCreate)))
 
 	// add any new fields and keep track of what needs to be saved
-	if err := shard.createFieldsAndMeasurements(fieldsToCreate); err != nil {
+	if err = shard.createFieldsAndMeasurements(fieldsToCreate); err != nil {
 		return err
 	}
 
-	// Write to the engine.
-	if err := engine.WritePoints(ctx, points); err != nil {
+	// Write to the engine
+	if err = engine.WritePoints(ctx, points); err != nil {
 		return fmt.Errorf("engine: %s", err)
 	}
 
@@ -1344,7 +1344,7 @@ func (shard *Shard) Engine() (Engine, error) {
 	return shard.engineNoLock()
 }
 
-// engineNoLock is similar to calling engine(), but the caller must guarantee
+// is similar to calling engine(), but the caller must guarantee
 // that they already hold an appropriate lock.
 func (shard *Shard) engineNoLock() (Engine, error) {
 	if err := shard.ready(); err != nil {

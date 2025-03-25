@@ -9,7 +9,6 @@ import (
 	"time"
 
 	io2 "github.com/influxdata/influxdb/v2/kit/io"
-	"github.com/influxdata/influxdb/v2/kit/platform"
 	errors2 "github.com/influxdata/influxdb/v2/kit/platform/errors"
 	"github.com/influxdata/influxdb/v2/kit/tracing"
 	"github.com/influxdata/influxdb/v2/models"
@@ -28,8 +27,8 @@ const (
 	msgUnableToReadData = "unable to read data"
 )
 
-// ParsedPoints contains the points parsed as well as the total number of bytes
-// after decompression.
+// contains the points parsed as well as the total number of bytes
+// after decompression
 type ParsedPoints struct {
 	Points  models.Points
 	RawSize int
@@ -41,14 +40,14 @@ type Parser struct {
 	//ParserOptions []models.ParserOption
 }
 
-// Parse parses the points from an io.ReadCloser for a specific Bucket.
-func (pw *Parser) Parse(ctx context.Context, orgID, bucketID platform.ID, rc io.ReadCloser) (*ParsedPoints, error) {
+// parses the points from an io.ReadCloser for a specific Bucket.
+func (parser *Parser) Parse(ctx context.Context, rc io.ReadCloser) (*ParsedPoints, error) {
 	span, ctx := opentracing.StartSpanFromContext(ctx, "write points")
 	defer span.Finish()
-	return pw.parsePoints(ctx, orgID, bucketID, rc)
+	return parser.parsePoints(ctx, rc)
 }
 
-func (pw *Parser) parsePoints(ctx context.Context, orgID, bucketID platform.ID, rc io.ReadCloser) (*ParsedPoints, error) {
+func (parser *Parser) parsePoints(ctx context.Context, rc io.ReadCloser) (*ParsedPoints, error) {
 	data, err := readAll(ctx, rc)
 	if err != nil {
 		code := errors2.EInternal
@@ -67,7 +66,7 @@ func (pw *Parser) parsePoints(ctx context.Context, orgID, bucketID platform.ID, 
 
 	span, _ := tracing.StartSpanFromContextWithOperationName(ctx, "encoding and parsing")
 
-	points, err := models.ParsePointsWithPrecision(data, time.Now().UTC(), pw.Precision)
+	points, err := models.ParsePointsWithPrecision(data, time.Now().UTC(), parser.Precision)
 	span.LogKV("values_total", len(points))
 	span.Finish()
 	if err != nil {
@@ -121,7 +120,7 @@ func readAll(ctx context.Context, rc io.ReadCloser) (data []byte, err error) {
 }
 
 // NewParser returns a new Parser
-func NewParser(precision string /*parserOptions ...models.ParserOption*/) *Parser {
+func NewParser(precision string) *Parser {
 	return &Parser{
 		Precision: precision,
 		//ParserOptions: parserOptions,

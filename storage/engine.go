@@ -114,7 +114,7 @@ func NewEngine(path string, c Config, options ...Option) *Engine {
 	c.Data.Dir = filepath.Join(path, "data")
 	c.Data.WALDir = filepath.Join(path, "wal")
 
-	e := &Engine{
+	engine := &Engine{
 		config:    c,
 		path:      path,
 		tsdbStore: tsdb.NewStore(c.Data.Dir),
@@ -124,29 +124,29 @@ func NewEngine(path string, c Config, options ...Option) *Engine {
 	}
 
 	for _, opt := range options {
-		opt(e)
+		opt(engine)
 	}
 
-	e.tsdbStore.EngineOptions.Config = c.Data
+	engine.tsdbStore.EngineOptions.Config = c.Data
 
 	// Copy TSDB configuration.
-	e.tsdbStore.EngineOptions.EngineVersion = c.Data.Engine
-	e.tsdbStore.EngineOptions.IndexVersion = c.Data.Index
-	e.tsdbStore.EngineOptions.MetricsDisabled = e.metricsDisabled
+	engine.tsdbStore.EngineOptions.EngineVersion = c.Data.Engine
+	engine.tsdbStore.EngineOptions.IndexVersion = c.Data.Index
+	engine.tsdbStore.EngineOptions.MetricsDisabled = engine.metricsDisabled
 
 	pointsWriter := coordinator.NewPointsWriter(c.WriteTimeout, path)
-	pointsWriter.TSDBStore = e.tsdbStore
-	pointsWriter.MetaClient = e.metaClient
-	e.pointsWriter = pointsWriter
+	pointsWriter.TSDBStore = engine.tsdbStore
+	pointsWriter.MetaClient = engine.metaClient
+	engine.pointsWriter = pointsWriter
 
-	e.retentionService = retention.NewService(c.RetentionService)
-	e.retentionService.TSDBStore = e.tsdbStore
-	e.retentionService.MetaClient = e.metaClient
+	engine.retentionService = retention.NewService(c.RetentionService)
+	engine.retentionService.TSDBStore = engine.tsdbStore
+	engine.retentionService.MetaClient = engine.metaClient
 
-	e.precreatorService = precreator.NewService(c.PrecreatorConfig)
-	e.precreatorService.MetaClient = e.metaClient
+	engine.precreatorService = precreator.NewService(c.PrecreatorConfig)
+	engine.precreatorService.MetaClient = engine.metaClient
 
-	return e
+	return engine
 }
 
 // WithLogger sets the logger on the Store. It must be called before Open.
@@ -398,12 +398,12 @@ func (engine *Engine) RestoreKVStore(ctx context.Context, r io.Reader) error {
 	data := engine.metaClient.Data()
 	for _, dbi := range data.Databases {
 		for _, rpi := range dbi.RetentionPolicies {
-			for _, sgi := range rpi.ShardGroups {
+			for _, sgi := range rpi.ShardGroupInfos {
 				if sgi.Deleted() {
 					continue
 				}
 
-				for _, sh := range sgi.Shards {
+				for _, sh := range sgi.ShardInfos {
 					if err := engine.tsdbStore.CreateShard(ctx, dbi.Name, rpi.Name, sh.ID, true); err != nil {
 						return err
 					}
@@ -445,15 +445,15 @@ func (engine *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []b
 	// Generate shard ID mapping.
 	shardIDMap := make(map[uint64]uint64)
 	rpi := newDBI.RetentionPolicies[0]
-	for j, sgi := range rpi.ShardGroups {
+	for j, sgi := range rpi.ShardGroupInfos {
 		data.MaxShardGroupID++
-		rpi.ShardGroups[j].ID = data.MaxShardGroupID
+		rpi.ShardGroupInfos[j].ID = data.MaxShardGroupID
 
-		for k := range sgi.Shards {
+		for k := range sgi.ShardInfos {
 			data.MaxShardID++
-			shardIDMap[sgi.Shards[k].ID] = data.MaxShardID
-			sgi.Shards[k].ID = data.MaxShardID
-			sgi.Shards[k].Owners = []meta.ShardOwner{}
+			shardIDMap[sgi.ShardInfos[k].ID] = data.MaxShardID
+			sgi.ShardInfos[k].ID = data.MaxShardID
+			sgi.ShardInfos[k].Owners = []meta.ShardOwner{}
 		}
 	}
 
@@ -463,12 +463,12 @@ func (engine *Engine) RestoreBucket(ctx context.Context, id platform.ID, buf []b
 	}
 
 	// Create shards.
-	for _, sgi := range rpi.ShardGroups {
+	for _, sgi := range rpi.ShardGroupInfos {
 		if sgi.Deleted() {
 			continue
 		}
 
-		for _, sh := range sgi.Shards {
+		for _, sh := range sgi.ShardInfos {
 			if err := engine.tsdbStore.CreateShard(ctx, dbi.Name, rpi.Name, sh.ID, true); err != nil {
 				return nil, err
 			}

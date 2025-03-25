@@ -132,87 +132,87 @@ func WithResourceHandler(resHandler kithttp.ResourceHandler) APIHandlerOptFn {
 }
 
 // NewAPIHandler constructs all api handlers beneath it and returns an APIHandler
-func NewAPIHandler(b *APIBackend, opts ...APIHandlerOptFn) *APIHandler {
+func NewAPIHandler(apiBackend *APIBackend, opts ...APIHandlerOptFn) *APIHandler {
 	h := &APIHandler{
-		Router: NewBaseChiRouter(kithttp.NewAPI(kithttp.WithLog(b.Logger))),
+		Router: NewBaseChiRouter(kithttp.NewAPI(kithttp.WithLog(apiBackend.Logger))),
 	}
 
-	b.UserResourceMappingService = authorizer.NewURMService(b.OrgLookupService, b.UserResourceMappingService)
+	apiBackend.UserResourceMappingService = authorizer.NewURMService(apiBackend.OrgLookupService, apiBackend.UserResourceMappingService)
 
-	h.Handle("/api/v2", serveLinksHandler(b.HTTPErrorHandler))
+	h.Handle("/api/v2", serveLinksHandler(apiBackend.HTTPErrorHandler))
 
-	checkBackend := NewCheckBackend(b.Logger.With(zap.String("handler", "check")), b)
-	checkBackend.CheckService = authorizer.NewCheckService(b.CheckService,
-		b.UserResourceMappingService, b.OrganizationService)
-	h.Mount(prefixChecks, NewCheckHandler(b.Logger, checkBackend))
+	checkBackend := NewCheckBackend(apiBackend.Logger.With(zap.String("handler", "check")), apiBackend)
+	checkBackend.CheckService = authorizer.NewCheckService(apiBackend.CheckService,
+		apiBackend.UserResourceMappingService, apiBackend.OrganizationService)
+	h.Mount(prefixChecks, NewCheckHandler(apiBackend.Logger, checkBackend))
 
-	deleteBackend := NewDeleteBackend(b.Logger.With(zap.String("handler", "delete")), b)
-	h.Mount(prefixDelete, NewDeleteHandler(b.Logger, deleteBackend))
+	deleteBackend := NewDeleteBackend(apiBackend.Logger.With(zap.String("handler", "delete")), apiBackend)
+	h.Mount(prefixDelete, NewDeleteHandler(apiBackend.Logger, deleteBackend))
 
-	documentBackend := NewDocumentBackend(b.Logger.With(zap.String("handler", "document")), b)
-	documentBackend.DocumentService = authorizer.NewDocumentService(b.DocumentService)
+	documentBackend := NewDocumentBackend(apiBackend.Logger.With(zap.String("handler", "document")), apiBackend)
+	documentBackend.DocumentService = authorizer.NewDocumentService(apiBackend.DocumentService)
 	h.Mount(prefixDocuments, NewDocumentHandler(documentBackend))
 
-	fluxBackend := NewFluxBackend(b.Logger.With(zap.String("handler", "query")), b)
-	h.Mount(prefixQuery, NewFluxHandler(b.Logger, fluxBackend))
+	fluxBackend := NewFluxBackend(apiBackend.Logger.With(zap.String("handler", "query")), apiBackend)
+	h.Mount(prefixQuery, NewFluxHandler(apiBackend.Logger, fluxBackend))
 
-	notificationEndpointBackend := NewNotificationEndpointBackend(b.Logger.With(zap.String("handler", "notificationEndpoint")), b)
-	notificationEndpointBackend.NotificationEndpointService = authorizer.NewNotificationEndpointService(b.NotificationEndpointService,
-		b.UserResourceMappingService, b.OrganizationService)
+	notificationEndpointBackend := NewNotificationEndpointBackend(apiBackend.Logger.With(zap.String("handler", "notificationEndpoint")), apiBackend)
+	notificationEndpointBackend.NotificationEndpointService = authorizer.NewNotificationEndpointService(apiBackend.NotificationEndpointService,
+		apiBackend.UserResourceMappingService, apiBackend.OrganizationService)
 	h.Mount(prefixNotificationEndpoints, NewNotificationEndpointHandler(notificationEndpointBackend.Logger(), notificationEndpointBackend))
 
-	notificationRuleBackend := NewNotificationRuleBackend(b.Logger.With(zap.String("handler", "notification_rule")), b)
-	notificationRuleBackend.NotificationRuleStore = authorizer.NewNotificationRuleStore(b.NotificationRuleStore,
-		b.UserResourceMappingService, b.OrganizationService)
-	h.Mount(prefixNotificationRules, NewNotificationRuleHandler(b.Logger, notificationRuleBackend))
+	notificationRuleBackend := NewNotificationRuleBackend(apiBackend.Logger.With(zap.String("handler", "notification_rule")), apiBackend)
+	notificationRuleBackend.NotificationRuleStore = authorizer.NewNotificationRuleStore(apiBackend.NotificationRuleStore,
+		apiBackend.UserResourceMappingService, apiBackend.OrganizationService)
+	h.Mount(prefixNotificationRules, NewNotificationRuleHandler(apiBackend.Logger, notificationRuleBackend))
 
-	scraperBackend := NewScraperBackend(b.Logger.With(zap.String("handler", "scraper")), b)
-	scraperBackend.ScraperStorageService = authorizer.NewScraperTargetStoreService(b.ScraperTargetStoreService,
-		b.UserResourceMappingService,
-		b.OrganizationService)
-	h.Mount(prefixTargets, NewScraperHandler(b.Logger, scraperBackend))
+	scraperBackend := NewScraperBackend(apiBackend.Logger.With(zap.String("handler", "scraper")), apiBackend)
+	scraperBackend.ScraperStorageService = authorizer.NewScraperTargetStoreService(apiBackend.ScraperTargetStoreService,
+		apiBackend.UserResourceMappingService,
+		apiBackend.OrganizationService)
+	h.Mount(prefixTargets, NewScraperHandler(apiBackend.Logger, scraperBackend))
 
-	sourceBackend := NewSourceBackend(b.Logger.With(zap.String("handler", "source")), b)
-	sourceBackend.SourceService = authorizer.NewSourceService(b.SourceService)
-	sourceBackend.BucketService = authorizer.NewBucketService(b.BucketService)
-	h.Mount(prefixSources, NewSourceHandler(b.Logger, sourceBackend))
+	sourceBackend := NewSourceBackend(apiBackend.Logger.With(zap.String("handler", "source")), apiBackend)
+	sourceBackend.SourceService = authorizer.NewSourceService(apiBackend.SourceService)
+	sourceBackend.BucketService = authorizer.NewBucketService(apiBackend.BucketService)
+	h.Mount(prefixSources, NewSourceHandler(apiBackend.Logger, sourceBackend))
 
 	h.Mount("/api/v2/swagger.json", static.NewSwaggerHandler())
 
-	taskLogger := b.Logger.With(zap.String("handler", "bucket"))
-	taskBackend := NewTaskBackend(taskLogger, b)
-	taskBackend.TaskService = authorizer.NewTaskService(taskLogger, b.TaskService)
-	taskHandler := NewTaskHandler(b.Logger, taskBackend)
+	taskLogger := apiBackend.Logger.With(zap.String("handler", "bucket"))
+	taskBackend := NewTaskBackend(taskLogger, apiBackend)
+	taskBackend.TaskService = authorizer.NewTaskService(taskLogger, apiBackend.TaskService)
+	taskHandler := NewTaskHandler(apiBackend.Logger, taskBackend)
 	h.Mount(prefixTasks, taskHandler)
 
-	telegrafBackend := NewTelegrafBackend(b.Logger.With(zap.String("handler", "telegraf")), b)
-	telegrafBackend.TelegrafService = authorizer.NewTelegrafConfigService(b.TelegrafService, b.UserResourceMappingService)
-	h.Mount(prefixTelegrafPlugins, NewTelegrafHandler(b.Logger, telegrafBackend))
-	h.Mount(prefixTelegraf, NewTelegrafHandler(b.Logger, telegrafBackend))
+	telegrafBackend := NewTelegrafBackend(apiBackend.Logger.With(zap.String("handler", "telegraf")), apiBackend)
+	telegrafBackend.TelegrafService = authorizer.NewTelegrafConfigService(apiBackend.TelegrafService, apiBackend.UserResourceMappingService)
+	h.Mount(prefixTelegrafPlugins, NewTelegrafHandler(apiBackend.Logger, telegrafBackend))
+	h.Mount(prefixTelegraf, NewTelegrafHandler(apiBackend.Logger, telegrafBackend))
 
-	h.Mount("/api/v2/flags", b.FlagsHandler)
+	h.Mount("/api/v2/flags", apiBackend.FlagsHandler)
 
 	h.Mount(prefixResources, NewResourceListHandler())
 
-	variableBackend := NewVariableBackend(b.Logger.With(zap.String("handler", "variable")), b)
-	variableBackend.VariableService = authorizer.NewVariableService(b.VariableService)
-	h.Mount(prefixVariables, NewVariableHandler(b.Logger, variableBackend))
+	variableBackend := NewVariableBackend(apiBackend.Logger.With(zap.String("handler", "variable")), apiBackend)
+	variableBackend.VariableService = authorizer.NewVariableService(apiBackend.VariableService)
+	h.Mount(prefixVariables, NewVariableHandler(apiBackend.Logger, variableBackend))
 
-	backupBackend := NewBackupBackend(b)
+	backupBackend := NewBackupBackend(apiBackend)
 	backupBackend.BackupService = authorizer.NewBackupService(backupBackend.BackupService)
 	backupBackend.SqlBackupRestoreService = authorizer.NewSqlBackupRestoreService(backupBackend.SqlBackupRestoreService)
 	h.Mount(prefixBackup, NewBackupHandler(backupBackend))
 
-	restoreBackend := NewRestoreBackend(b)
+	restoreBackend := NewRestoreBackend(apiBackend)
 	restoreBackend.RestoreService = authorizer.NewRestoreService(restoreBackend.RestoreService)
 	restoreBackend.SqlBackupRestoreService = authorizer.NewSqlBackupRestoreService(restoreBackend.SqlBackupRestoreService)
 	h.Mount(prefixRestore, NewRestoreHandler(restoreBackend))
 
-	h.Mount(dbrp.PrefixDBRP, dbrp.NewHTTPHandler(b.Logger, b.DBRPService, b.OrganizationService))
+	h.Mount(dbrp.PrefixDBRP, dbrp.NewHTTPHandler(apiBackend.Logger, apiBackend.DBRPService, apiBackend.OrganizationService))
 
-	writeBackend := NewWriteBackend(b.Logger.With(zap.String("handler", "write")), b)
-	h.Mount(prefixWrite, NewWriteHandler(b.Logger, writeBackend,
-		WithMaxBatchSizeBytes(b.MaxBatchSizeBytes),
+	writeBackend := NewWriteBackend(apiBackend.Logger.With(zap.String("handler", "write")), apiBackend)
+	h.Mount(prefixWrite, NewWriteHandler(apiBackend.Logger, writeBackend,
+		WithMaxBatchSizeBytes(apiBackend.MaxBatchSizeBytes),
 		// WithParserOptions(
 		//	models.WithParserMaxBytes(b.WriteParserMaxBytes),
 		//	models.WithParserMaxLines(b.WriteParserMaxLines),

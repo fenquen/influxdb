@@ -20,13 +20,13 @@ type PlatformHandler struct {
 }
 
 // NewPlatformHandler returns a platform handler that serves the API and associated assets.
-func NewPlatformHandler(b *APIBackend, opts ...APIHandlerOptFn) *PlatformHandler {
-	h := NewAuthenticationHandler(b.Logger, b.HTTPErrorHandler)
-	h.Handler = feature.NewHandler(b.Logger, b.Flagger, feature.Flags(), NewAPIHandler(b, opts...))
-	h.AuthorizationService = b.AuthorizationService
-	h.SessionService = b.SessionService
-	h.SessionRenewDisabled = b.SessionRenewDisabled
-	h.UserService = b.UserService
+func NewPlatformHandler(apiBackend *APIBackend, opts ...APIHandlerOptFn) *PlatformHandler {
+	h := NewAuthenticationHandler(apiBackend.Logger, apiBackend.HTTPErrorHandler)
+	h.Handler = feature.NewHandler(apiBackend.Logger, apiBackend.Flagger, feature.Flags(), NewAPIHandler(apiBackend, opts...))
+	h.AuthorizationService = apiBackend.AuthorizationService
+	h.SessionService = apiBackend.SessionService
+	h.SessionRenewDisabled = apiBackend.SessionRenewDisabled
+	h.UserService = apiBackend.UserService
 
 	h.RegisterNoAuthRoute("GET", "/api/v2")
 	h.RegisterNoAuthRoute("POST", "/api/v2/signin")
@@ -35,16 +35,16 @@ func NewPlatformHandler(b *APIBackend, opts ...APIHandlerOptFn) *PlatformHandler
 	h.RegisterNoAuthRoute("GET", "/api/v2/setup")
 	h.RegisterNoAuthRoute("GET", "/api/v2/swagger.json")
 
-	assetHandler := static.NewAssetHandler(b.AssetsPath)
-	if b.UIDisabled {
-		b.Logger.Debug("http server running with UI disabled")
+	assetHandler := static.NewAssetHandler(apiBackend.AssetsPath)
+	if apiBackend.UIDisabled {
+		apiBackend.Logger.Debug("http server running with UI disabled")
 		assetHandler = http.NotFoundHandler()
 	}
 
 	wrappedHandler := kithttp.SetCORS(h)
 	wrappedHandler = kithttp.SkipOptions(wrappedHandler)
 
-	legacyBackend := newLegacyBackend(b)
+	legacyBackend := newLegacyBackend(apiBackend)
 	lh := newLegacyHandler(legacyBackend, *legacy.NewHandlerConfig())
 	// legacy reponses can optionally be gzip encoded
 	gh := gziphandler.GzipHandler(lh)
@@ -53,7 +53,7 @@ func NewPlatformHandler(b *APIBackend, opts ...APIHandlerOptFn) *PlatformHandler
 		AssetHandler:  assetHandler,
 		DocsHandler:   Redoc("/api/v2/swagger.json"),
 		APIHandler:    wrappedHandler,
-		LegacyHandler: legacy.NewInflux1xAuthenticationHandler(gh, b.AuthorizerV1, b.HTTPErrorHandler),
+		LegacyHandler: legacy.NewInflux1xAuthenticationHandler(gh, apiBackend.AuthorizerV1, apiBackend.HTTPErrorHandler),
 	}
 }
 

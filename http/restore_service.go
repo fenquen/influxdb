@@ -306,12 +306,12 @@ func manifestToRpInfo(m influxdb.RetentionPolicyManifest) meta.RetentionPolicyIn
 		ReplicaN:           m.ReplicaN,
 		Duration:           m.Duration,
 		ShardGroupDuration: m.ShardGroupDuration,
-		ShardGroups:        make([]meta.ShardGroupInfo, len(m.ShardGroups)),
+		ShardGroupInfos:    make([]meta.ShardGroupInfo, len(m.ShardGroups)),
 		Subscriptions:      make([]meta.SubscriptionInfo, len(m.Subscriptions)),
 	}
 
 	for i, sg := range m.ShardGroups {
-		rpi.ShardGroups[i] = manifestToSgInfo(sg)
+		rpi.ShardGroupInfos[i] = manifestToSgInfo(sg)
 	}
 	for i, s := range m.Subscriptions {
 		rpi.Subscriptions[i] = meta.SubscriptionInfo{
@@ -338,11 +338,11 @@ func manifestToSgInfo(m influxdb.ShardGroupManifest) meta.ShardGroupInfo {
 		EndTime:     m.EndTime,
 		DeletedAt:   delAt,
 		TruncatedAt: truncAt,
-		Shards:      make([]meta.ShardInfo, len(m.Shards)),
+		ShardInfos:  make([]meta.ShardInfo, len(m.Shards)),
 	}
 
 	for i, sh := range m.Shards {
-		sgi.Shards[i] = manifestToShardInfo(sh)
+		sgi.ShardInfos[i] = manifestToShardInfo(sh)
 	}
 
 	return sgi

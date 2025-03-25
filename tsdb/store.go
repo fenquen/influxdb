@@ -93,14 +93,14 @@ func (se *shardErrorMap) shardError(shardID uint64) (error, bool) {
 	return oldErr, hasErr
 }
 
-// Store manages shards and indexes for databases.
+// manages shards and indexes for databases.
 type Store struct {
-	mu                sync.RWMutex
-	shards            map[uint64]*Shard
-	databases         map[string]*databaseState
-	sfiles            map[string]*SeriesFile
-	SeriesFileMaxSize int64 // Determines size of series file mmap. Can be altered in tests.
-	path              string
+	mu                     sync.RWMutex
+	shards                 map[uint64]*Shard
+	databases              map[string]*databaseState
+	bucketIdStr2SeriesFile map[string]*SeriesFile
+	SeriesFileMaxSize      int64 // Determines size of series file mmap. Can be altered in tests.
+	path                   string
 
 	// Maintains a set of shards that are in the process of deletion.
 	// This prevents new shards from being created while old ones are being deleted.
@@ -127,15 +127,15 @@ type Store struct {
 // The returned store must be initialized by calling Open before using it.
 func NewStore(path string) *Store {
 	return &Store{
-		databases:           make(map[string]*databaseState),
-		path:                path,
-		sfiles:              make(map[string]*SeriesFile),
-		pendingShardDeletes: make(map[uint64]struct{}),
-		badShards:           shardErrorMap{shardErrors: make(map[uint64]error)},
-		epochs:              make(map[uint64]*epochTracker),
-		EngineOptions:       NewEngineOptions(),
-		Logger:              zap.NewNop(),
-		baseLogger:          zap.NewNop(),
+		databases:              make(map[string]*databaseState),
+		path:                   path,
+		bucketIdStr2SeriesFile: make(map[string]*SeriesFile),
+		pendingShardDeletes:    make(map[uint64]struct{}),
+		badShards:              shardErrorMap{shardErrors: make(map[uint64]error)},
+		epochs:                 make(map[uint64]*epochTracker),
+		EngineOptions:          NewEngineOptions(),
+		Logger:                 zap.NewNop(),
+		baseLogger:             zap.NewNop(),
 	}
 }
 
@@ -518,7 +518,7 @@ func (store *Store) Close() error {
 	}
 
 	store.mu.Lock()
-	for _, sfile := range store.sfiles {
+	for _, sfile := range store.bucketIdStr2SeriesFile {
 		// Close out the series files.
 		if err := sfile.Close(); err != nil {
 			store.mu.Unlock()
@@ -527,7 +527,7 @@ func (store *Store) Close() error {
 	}
 
 	store.databases = make(map[string]*databaseState)
-	store.sfiles = map[string]*SeriesFile{}
+	store.bucketIdStr2SeriesFile = map[string]*SeriesFile{}
 	store.pendingShardDeletes = make(map[uint64]struct{})
 	store.shards = nil
 	store.opened = false // Store may now be opened again.
@@ -547,18 +547,18 @@ func (store *Store) epochsForShards(shards []*Shard) map[uint64]*epochTracker {
 
 // either returns or creates a series file for the provided
 // database. It must be called under a full lock.
-func (store *Store) openSeriesFile(database string) (*SeriesFile, error) {
-	if seriesFile := store.sfiles[database]; seriesFile != nil {
+func (store *Store) openSeriesFile(bucketIdStr string) (*SeriesFile, error) {
+	if seriesFile := store.bucketIdStr2SeriesFile[bucketIdStr]; seriesFile != nil {
 		return seriesFile, nil
 	}
 
-	seriesFile := NewSeriesFile(filepath.Join(store.path, database, SeriesFileDirectory))
+	seriesFile := NewSeriesFile(filepath.Join(store.path, bucketIdStr, SeriesFileDirectory))
 	seriesFile.WithMaxCompactionConcurrency(store.EngineOptions.Config.SeriesFileMaxConcurrentSnapshotCompactions)
 	seriesFile.Logger = store.baseLogger
 	if err := seriesFile.Open(); err != nil {
 		return nil, err
 	}
-	store.sfiles[database] = seriesFile
+	store.bucketIdStr2SeriesFile[bucketIdStr] = seriesFile
 	return seriesFile, nil
 }
 
@@ -569,7 +569,7 @@ func (store *Store) SeriesFile(database string) *SeriesFile {
 func (store *Store) seriesFile(database string) *SeriesFile {
 	store.mu.RLock()
 	defer store.mu.RUnlock()
-	return store.sfiles[database]
+	return store.bucketIdStr2SeriesFile[database]
 }
 
 // Shard returns a shard by id.
@@ -601,14 +601,14 @@ func (e ErrPreviousShardFail) Error() string {
 	return e.error.Error()
 }
 
-func (store *Store) OpenShard(ctx context.Context, sh *Shard, force bool) error {
-	if sh == nil {
+func (store *Store) OpenShard(ctx context.Context, shard *Shard, force bool) error {
+	if shard == nil {
 		return errors.New("cannot open nil shard")
 	}
-	oldErr, bad := store.badShards.shardError(sh.ID())
+	oldErr, bad := store.badShards.shardError(shard.ID())
 	if force || !bad {
-		err := sh.Open(ctx)
-		store.badShards.setShardOpenError(sh.ID(), err)
+		err := shard.Open(ctx)
+		store.badShards.setShardOpenError(shard.ID(), err)
 		return err
 	} else {
 		return oldErr
@@ -657,8 +657,8 @@ func (store *Store) ShardDigest(id uint64) (io.ReadCloser, int64, error) {
 	return readCloser, size, err
 }
 
-// CreateShard creates a shard with the given id and retention policy on a database.
-func (store *Store) CreateShard(ctx context.Context, database, retentionPolicy string, shardID uint64, enabled bool) error {
+// creates a shard with the given id and retention policy on a database.
+func (store *Store) CreateShard(ctx context.Context, bucketIdStr, retentionPolicyName string, shardID uint64, enableOnOpen bool) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
@@ -680,30 +680,30 @@ func (store *Store) CreateShard(ctx context.Context, database, retentionPolicy s
 	}
 
 	// Create the db and retention policy directories if they don't exist.
-	if err := os.MkdirAll(filepath.Join(store.path, database, retentionPolicy), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(store.path, bucketIdStr, retentionPolicyName), 0700); err != nil {
 		return err
 	}
 
 	// Create the WAL directory.
-	walPath := filepath.Join(store.EngineOptions.Config.WALDir, database, retentionPolicy, fmt.Sprintf("%d", shardID))
+	walPath := filepath.Join(store.EngineOptions.Config.WALDir, bucketIdStr, retentionPolicyName, fmt.Sprintf("%d", shardID))
 	if err := os.MkdirAll(walPath, 0700); err != nil {
 		return err
 	}
 
-	// Retrieve database series file.
-	sfile, err := store.openSeriesFile(database)
+	// store.path/bucketIdStr/SeriesFileDirectory
+	seriesFile, err := store.openSeriesFile(bucketIdStr)
 	if err != nil {
 		return err
 	}
 
 	// Copy index options and pass in shared index.
 	opt := store.EngineOptions
-	opt.SeriesIDSets = shardSet{store: store, db: database}
+	opt.SeriesIDSets = shardSet{store: store, db: bucketIdStr}
 
-	path := filepath.Join(store.path, database, retentionPolicy, strconv.FormatUint(shardID, 10))
-	shard := NewShard(shardID, path, walPath, sfile, opt)
+	path := filepath.Join(store.path, bucketIdStr, retentionPolicyName, strconv.FormatUint(shardID, 10))
+	shard := NewShard(shardID, path, walPath, seriesFile, opt)
 	shard.WithLogger(store.baseLogger)
-	shard.EnableOnOpen = enabled
+	shard.EnableOnOpen = enableOnOpen
 
 	if err := store.OpenShard(ctx, shard, false); err != nil {
 		return err
@@ -711,16 +711,16 @@ func (store *Store) CreateShard(ctx context.Context, database, retentionPolicy s
 
 	store.shards[shardID] = shard
 	store.epochs[shardID] = newEpochTracker()
-	if _, ok := store.databases[database]; !ok {
-		store.databases[database] = new(databaseState)
+	if _, ok := store.databases[bucketIdStr]; !ok {
+		store.databases[bucketIdStr] = new(databaseState)
 	}
-	store.databases[database].addIndexType(shard.IndexType())
-	if state := store.databases[database]; state.hasMultipleIndexTypes() {
+	store.databases[bucketIdStr].addIndexType(shard.IndexType())
+	if state := store.databases[bucketIdStr]; state.hasMultipleIndexTypes() {
 		var fields []zapcore.Field
 		for idx, cnt := range state.indexTypes {
 			fields = append(fields, zap.Int(fmt.Sprintf("%s_count", idx), cnt))
 		}
-		store.Logger.Warn("Mixed shard index types", append(fields, logger.Database(database))...)
+		store.Logger.Warn("Mixed shard index types", append(fields, logger.Database(bucketIdStr))...)
 	}
 
 	return nil
@@ -875,8 +875,8 @@ func (store *Store) DeleteDatabase(name string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	sfile := store.sfiles[name]
-	delete(store.sfiles, name)
+	sfile := store.bucketIdStr2SeriesFile[name]
+	delete(store.bucketIdStr2SeriesFile, name)
 
 	// Close series file.
 	if sfile != nil {
@@ -1350,7 +1350,7 @@ func (store *Store) DeleteSeriesWithPredicate(ctx context.Context, database stri
 		store.mu.RUnlock()
 		return ErrMultipleIndexTypes
 	}
-	sfile := store.sfiles[database]
+	sfile := store.bucketIdStr2SeriesFile[database]
 	if sfile == nil {
 		store.mu.RUnlock()
 		// No series file means nothing has been written to this DB and thus nothing to delete.
@@ -1477,7 +1477,7 @@ func (store *Store) DeleteSeries(ctx context.Context, database string, sources [
 		store.mu.RUnlock()
 		return ErrMultipleIndexTypes
 	}
-	sfile := store.sfiles[database]
+	sfile := store.bucketIdStr2SeriesFile[database]
 	if sfile == nil {
 		store.mu.RUnlock()
 		// No series file means nothing has been written to this DB and thus nothing to delete.
@@ -1555,8 +1555,8 @@ func (store *Store) ExpandSources(sources influxql.Sources) (influxql.Sources, e
 	return shards.ExpandSources(sources)
 }
 
-// WriteToShard writes a list of points to a shard identified by its ID.
-func (store *Store) WriteToShard(ctx context.Context, shardID uint64, points []models.Point) error {
+// write a list of points to a shard identified by its ID.
+func (store *Store) WriteToShard(ctx context.Context, shardId uint64, points []models.Point) error {
 	store.mu.RLock()
 
 	select {
@@ -1566,13 +1566,13 @@ func (store *Store) WriteToShard(ctx context.Context, shardID uint64, points []m
 	default:
 	}
 
-	sh := store.shards[shardID]
-	if sh == nil {
+	shard := store.shards[shardId]
+	if shard == nil {
 		store.mu.RUnlock()
 		return ErrShardNotFound
 	}
 
-	epoch := store.epochs[shardID]
+	epoch := store.epochs[shardId]
 
 	store.mu.RUnlock()
 
@@ -1580,7 +1580,7 @@ func (store *Store) WriteToShard(ctx context.Context, shardID uint64, points []m
 	guards, gen := epoch.StartWrite()
 	defer epoch.EndWrite(gen)
 
-	// wait for any guards before writing the points.
+	// wait for any guards before writing the points
 	for _, guard := range guards {
 		if guard.Matches(points) {
 			guard.Wait()
@@ -1589,11 +1589,11 @@ func (store *Store) WriteToShard(ctx context.Context, shardID uint64, points []m
 
 	// Ensure snapshot compactions are enabled since the shard might have been cold
 	// and disabled by the monitor.
-	if isIdle, _ := sh.IsIdle(); isIdle {
-		sh.SetCompactionsEnabled(true)
+	if isIdle, _ := shard.IsIdle(); isIdle {
+		shard.SetCompactionsEnabled(true)
 	}
 
-	return sh.WritePoints(ctx, points)
+	return shard.WritePoints(ctx, points)
 }
 
 // MeasurementNames returns a slice of all measurements. Measurements accepts an

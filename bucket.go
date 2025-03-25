@@ -30,7 +30,6 @@ const (
 // InfiniteRetention is default infinite retention period.
 const InfiniteRetention = 0
 
-// Bucket is a bucket. 🎉
 type Bucket struct {
 	ID                  platform.ID   `json:"id,omitempty"`
 	OrgID               platform.ID   `json:"orgID,omitempty"`
@@ -49,7 +48,7 @@ func (b *Bucket) Clone() *Bucket {
 	return &other
 }
 
-// BucketType differentiates system buckets from user buckets.
+// 例如系统内部使用的bucket 用户使用的
 type BucketType int
 
 // String converts a BucketType into a human-readable string.
@@ -84,7 +83,7 @@ type BucketService interface {
 	// FindBucketByID returns a single bucket by ID.
 	FindBucketByID(ctx context.Context, id platform.ID) (*Bucket, error)
 
-	// FindBucket returns the first bucket that matches filter.
+	// returns the first bucket that matches filter.
 	FindBucket(ctx context.Context, filter BucketFilter) (*Bucket, error)
 
 	// FindBuckets returns a list of buckets that match filter and the total count of matching buckets.

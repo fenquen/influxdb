@@ -95,7 +95,7 @@ type NewEngineFunc func(id uint64, i Index, path string, walPath string, sfile *
 // newEngineFuncs is a lookup of engine constructors by name.
 var newEngineFuncs = make(map[string]NewEngineFunc)
 
-// RegisterEngine registers a storage engine initializer by name.
+// register a storage engine initializer by name.
 func RegisterEngine(name string, fn NewEngineFunc) {
 	if _, ok := newEngineFuncs[name]; ok {
 		panic("engine already registered: " + name)
@@ -141,7 +141,7 @@ func NewEngine(id uint64, i Index, path string, walPath string, sfile *SeriesFil
 		return nil, fmt.Errorf("invalid engine format: %q", format)
 	}
 
-	engine := fn(id, i, path, walPath, sfile, options)
+	engine := fn(id, i, path, walPath, sfile, options) // tsm1 NewEngine
 	if options.OnNewEngine != nil {
 		options.OnNewEngine(engine)
 	}

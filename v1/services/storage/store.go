@@ -115,9 +115,9 @@ func (s *Store) findShardIDs(database, rp string, desc bool, start, end int64) (
 		sort.Sort(meta.ShardGroupInfos(groups))
 	}
 
-	shardIDs := make([]uint64, 0, len(groups[0].Shards)*len(groups))
+	shardIDs := make([]uint64, 0, len(groups[0].ShardInfos)*len(groups))
 	for _, g := range groups {
-		for _, si := range g.Shards {
+		for _, si := range g.ShardInfos {
 			shardIDs = append(shardIDs, si.ID)
 		}
 	}
@@ -794,8 +794,8 @@ func groupShardsByTime(sgs []meta.ShardGroupInfo, start, end int64) ([]uint64, [
 	partiallyInRange := []uint64{}
 
 	for _, sg := range sgs {
-		shards := make([]uint64, 0, len(sg.Shards))
-		for _, si := range sg.Shards {
+		shards := make([]uint64, 0, len(sg.ShardInfos))
+		for _, si := range sg.ShardInfos {
 			shards = append(shards, si.ID)
 		}
 

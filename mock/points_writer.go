@@ -25,7 +25,7 @@ func (p *PointsWriter) ForceError(err error) {
 	p.mu.Unlock()
 }
 
-// WritePoints writes points to the PointsWriter that will be exposed in the Values.
+// writes points to the PointsWriter that will be exposed in the Values.
 func (p *PointsWriter) WritePoints(ctx context.Context, orgID platform.ID, bucketID platform.ID, points []models.Point) error {
 	if p.WritePointsFn != nil {
 		return p.WritePointsFn(ctx, orgID, bucketID, points)
