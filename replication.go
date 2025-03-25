@@ -58,7 +58,7 @@ type TrackedReplication struct {
 	LocalBucketID     platform.ID
 }
 
-// CreateReplicationRequest contains all info needed to establish a new replication
+// contain all info needed to establish a new replication
 // to a remote InfluxDB bucket.
 type CreateReplicationRequest struct {
 	OrgID                platform.ID `json:"orgID"`
