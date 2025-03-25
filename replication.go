@@ -106,7 +106,7 @@ func (r *UpdateReplicationRequest) OK() error {
 }
 
 // ReplicationHTTPConfig contains all info needed by a client to make HTTP requests against the
-// remote bucket targeted by a replication.
+// remote bucket targeted by a replication
 type ReplicationHTTPConfig struct {
 	RemoteURL            string       `db:"remote_url"`
 	RemoteToken          string       `db:"remote_api_token"`
