@@ -81,7 +81,7 @@ func (r *CreateReplicationRequest) OK() error {
 	return nil
 }
 
-// UpdateReplicationRequest contains a partial update to existing info about a replication.
+// contain a partial update to existing info about a replication.
 type UpdateReplicationRequest struct {
 	Name                 *string      `json:"name,omitempty"`
 	Description          *string      `json:"description,omitempty"`
