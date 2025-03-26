@@ -38,7 +38,7 @@ func (e *StringEncoder) Reset() {
 	e.bytes = e.bytes[:0]
 }
 
-// Write encodes s to the underlying buffer.
+// encode s to the underlying buffer.
 func (e *StringEncoder) Write(s string) {
 	b := make([]byte, 10)
 	// Append the length of the string using variable byte encoding

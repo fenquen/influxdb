@@ -704,7 +704,7 @@ func (defaultPlanner *DefaultPlanner) Release(groups []CompactionGroup) {
 }
 
 // merges multiple TSM files into new files or
-// writes a Cache into 1 or more TSM files.
+// writes a Cache into TSM files
 type Compactor struct {
 	DirPath string // 其实是shard.path  证明tsm1.engine.go:185
 	Size    int
@@ -1784,7 +1784,7 @@ func (c *cacheKeyIterator) encode() {
 
 func (c *cacheKeyIterator) Next() bool {
 	if c.currentIndex >= 0 && c.currentIndex < len(c.readyChanPerKey) && len(c.cacheBlocksPerKey[c.currentIndex]) > 0 {
-		c.cacheBlocksPerKey[c.currentIndex] = c.cacheBlocksPerKey[c.currentIndex][1:]
+		c.cacheBlocksPerKey[c.currentIndex] = c.cacheBlocksPerKey[c.currentIndex][1:] // 如果只写了low而且过了slice的len,不会报错返回空的slice的
 		if len(c.cacheBlocksPerKey[c.currentIndex]) > 0 {
 			return true
 		}

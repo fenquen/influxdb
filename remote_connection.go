@@ -28,7 +28,7 @@ type RemoteConnections struct {
 	Remotes []RemoteConnection `json:"remotes"`
 }
 
-// CreateRemoteConnectionRequest contains all info needed to establish a new connection to a remote
+// contains all info needed to establish a new connection to a remote
 // InfluxDB instance.
 type CreateRemoteConnectionRequest struct {
 	OrgID            platform.ID  `json:"orgID"`

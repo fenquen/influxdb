@@ -694,15 +694,15 @@ func (shard *Shard) validateSeriesAndFields(points []models.Point) ([]models.Poi
 
 	// Create all series against the index in bulk.
 	keys := make([][]byte, len(points))
-	names := make([][]byte, len(points))
+	measurementNames := make([][]byte, len(points))
 	tagsSlice := make([]models.Tags, len(points))
 
 	// Check if keys should be unicode validated.
 	validateKeys := shard.engineOptions.Config.ValidateKeys
 
 	var j int
-	for i, p := range points {
-		tags := p.Tags()
+	for i, point := range points {
+		tags := point.Tags()
 
 		// Drop any series w/ a "time" tag, these are illegal
 		if v := tags.Get(timeBytes); v != nil {
@@ -710,27 +710,27 @@ func (shard *Shard) validateSeriesAndFields(points []models.Point) ([]models.Poi
 			if reason == "" {
 				reason = fmt.Sprintf(
 					"invalid tag key: input tag \"%s\" on measurement \"%s\" is invalid",
-					"time", string(p.Name()))
+					"time", string(point.Name()))
 			}
 			continue
 		}
 
 		// Drop any series with invalid unicode characters in the key.
-		if validateKeys && !models.ValidKeyTokens(string(p.Name()), tags) {
+		if validateKeys && !models.ValidKeyTokens(string(point.Name()), tags) {
 			dropped++
 			if reason == "" {
-				reason = fmt.Sprintf("key contains invalid unicode: %q", makePrintable(string(p.Key())))
+				reason = fmt.Sprintf("key contains invalid unicode: %q", makePrintable(string(point.Key())))
 			}
 			continue
 		}
 
-		keys[j] = p.Key()
-		names[j] = p.Name()
+		keys[j] = point.Key()
+		measurementNames[j] = point.Name()
 		tagsSlice[j] = tags
 		points[j] = points[i]
 		j++
 	}
-	points, keys, names, tagsSlice = points[:j], keys[:j], names[:j], tagsSlice[:j]
+	points, keys, measurementNames, tagsSlice = points[:j], keys[:j], measurementNames[:j], tagsSlice[:j]
 
 	engine, err := shard.engineNoLock()
 	if err != nil {
@@ -739,7 +739,7 @@ func (shard *Shard) validateSeriesAndFields(points []models.Point) ([]models.Poi
 
 	// Add new series. Check for partial writes.
 	var droppedKeys [][]byte
-	if err := engine.CreateSeriesListIfNotExists(keys, names, tagsSlice); err != nil {
+	if err := engine.CreateSeriesListIfNotExists(keys, measurementNames, tagsSlice); err != nil {
 		switch err := err.(type) {
 		// (DSB) This was previously *PartialWriteError. Now catch pointer and value types.
 		case *PartialWriteError:

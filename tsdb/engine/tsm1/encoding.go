@@ -866,23 +866,23 @@ func encodeStringBlock(buf []byte, values []Value) ([]byte, error) {
 	return b, err
 }
 
-func encodeStringBlockUsing(buf []byte, values []Value, tenc TimeEncoder, venc StringEncoder) ([]byte, error) {
-	tenc.Reset()
-	venc.Reset()
+func encodeStringBlockUsing(buf []byte, values []Value, timeEncoder TimeEncoder, stringEncoder StringEncoder) ([]byte, error) {
+	timeEncoder.Reset()
+	stringEncoder.Reset()
 
 	for _, v := range values {
-		vv := v.(StringValue)
-		tenc.Write(vv.unixnano)
-		venc.Write(vv.value)
+		stringValue := v.(StringValue)
+		timeEncoder.Write(stringValue.unixnano)
+		stringEncoder.Write(stringValue.value)
 	}
 
 	// Encoded timestamp values
-	tb, err := tenc.Bytes()
+	tb, err := timeEncoder.Bytes()
 	if err != nil {
 		return nil, err
 	}
 	// Encoded string values
-	vb, err := venc.Bytes()
+	vb, err := stringEncoder.Bytes()
 	if err != nil {
 		return nil, err
 	}

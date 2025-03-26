@@ -191,7 +191,7 @@ func SchemaColumnDataTypeFromString(s string) *SchemaColumnDataType {
 	}
 }
 
-// Ptr returns a pointer to s.
+// returns a pointer to s.
 func (s SchemaColumnDataType) Ptr() *SchemaColumnDataType { return &s }
 
 func (s *SchemaColumnDataType) String() string {
