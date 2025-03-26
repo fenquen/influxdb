@@ -23,17 +23,17 @@ const ErrViewNotFound = "view not found"
 
 // ops for dashboard service.
 const (
-	OpFindDashboardByID       = "FindDashboardByID"
-	OpFindDashboards          = "FindDashboards"
-	OpCreateDashboard         = "CreateDashboard"
-	OpUpdateDashboard         = "UpdateDashboard"
-	OpAddDashboardCell        = "AddDashboardCell"
-	OpRemoveDashboardCell     = "RemoveDashboardCell"
-	OpUpdateDashboardCell     = "UpdateDashboardCell"
-	OpGetDashboardCellView    = "GetDashboardCellView"
-	OpUpdateDashboardCellView = "UpdateDashboardCellView"
-	OpDeleteDashboard         = "DeleteDashboard"
-	OpReplaceDashboardCells   = "ReplaceDashboardCells"
+	OpFindDashboardByID = "FindDashboardByID"
+	//OpFindDashboards          = "FindDashboards"
+	//OpCreateDashboard         = "CreateDashboard"
+	OpUpdateDashboard  = "UpdateDashboard"
+	OpAddDashboardCell = "AddDashboardCell"
+	//OpRemoveDashboardCell     = "RemoveDashboardCell"
+	OpUpdateDashboardCell  = "UpdateDashboardCell"
+	OpGetDashboardCellView = "GetDashboardCellView"
+	//OpUpdateDashboardCellView = "UpdateDashboardCellView"
+	OpDeleteDashboard       = "DeleteDashboard"
+	OpReplaceDashboardCells = "ReplaceDashboardCells"
 )
 
 // DashboardService represents a service for managing dashboard data.
@@ -204,7 +204,7 @@ type DashboardFilter struct {
 	OwnerID        *platform.ID
 }
 
-// QueryParams turns a dashboard filter into query params
+// turns a dashboard filter into query params
 //
 // It implements PagingFilter.
 func (f DashboardFilter) QueryParams() map[string][]string {
@@ -402,7 +402,7 @@ func (v EmptyViewProperties) viewProperties() {}
 
 func (v EmptyViewProperties) GetType() string { return "" }
 
-// UnmarshalViewPropertiesJSON unmarshals JSON bytes into a ViewProperties.
+// UnmarshalViewPropertiesJSON unmarshal JSON bytes into a ViewProperties.
 func UnmarshalViewPropertiesJSON(b []byte) (ViewProperties, error) {
 	var v struct {
 		B json.RawMessage `json:"properties"`
@@ -1146,21 +1146,21 @@ func (b BuilderConfig) MarshalJSON() ([]byte, error) {
 // isn't technically required, but working with struct literals with embedded
 // struct tags is really painful. This is to get around that bit. Would be nicer
 // to have these as actual types maybe.
-func NewBuilderTag(key string, functionType string, values ...string) struct {
-	Key                   string   `json:"key"`
-	Values                []string `json:"values"`
-	AggregateFunctionType string   `json:"aggregateFunctionType"`
-} {
-	return struct {
-		Key                   string   `json:"key"`
-		Values                []string `json:"values"`
-		AggregateFunctionType string   `json:"aggregateFunctionType"`
-	}{
-		Key:                   key,
-		Values:                values,
-		AggregateFunctionType: functionType,
-	}
-}
+//func NewBuilderTag(key string, functionType string, values ...string) struct {
+//	Key                   string   `json:"key"`
+//	Values                []string `json:"values"`
+//	AggregateFunctionType string   `json:"aggregateFunctionType"`
+//} {
+//	return struct {
+//		Key                   string   `json:"key"`
+//		Values                []string `json:"values"`
+//		AggregateFunctionType string   `json:"aggregateFunctionType"`
+//	}{
+//		Key:                   key,
+//		Values:                values,
+//		AggregateFunctionType: functionType,
+//	}
+//}
 
 // Axis represents the visible extents of a visualization
 type Axis struct {
@@ -1201,7 +1201,7 @@ type TableOptions struct {
 	FixFirstColumn   bool           `json:"fixFirstColumn"`
 }
 
-// RenamableField is a column/row field in a DashboardView of type Table
+//   a column/row field in a DashboardView of type Table
 type RenamableField struct {
 	InternalName string `json:"internalName"`
 	DisplayName  string `json:"displayName"`
