@@ -383,7 +383,7 @@ func (t *TSMReader) Ref() {
 	t.refsWG.Add(1)
 }
 
-// Unref removes a usage record of this TSMReader.  If the Reader was closed
+// removes a usage record of this TSMReader.  If the Reader was closed
 // by another goroutine while there were active references, the file will
 // be closed and remove
 func (t *TSMReader) Unref() {
@@ -1307,7 +1307,7 @@ type mmapAccessor struct {
 
 	mmapWillNeed bool // If true then mmap advise value MADV_WILLNEED will be provided the kernel for b. 对应 storage-tsm-use-madv-willneed
 
-	mu sync.RWMutex
+	mu   sync.RWMutex
 	b    []byte
 	file *os.File
 

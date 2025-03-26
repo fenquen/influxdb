@@ -76,7 +76,7 @@ func (p *LimitedBytes) Get(sz int) []byte {
 		return make([]byte, sz)
 	}
 
-	if cap(c) < sz {
+	if cap(c) < sz { // 虽然有然而大小不够的
 		return make([]byte, sz)
 	}
 

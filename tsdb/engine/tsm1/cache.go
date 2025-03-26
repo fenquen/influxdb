@@ -99,7 +99,7 @@ func (e *entry) add(values []Value) error {
 	return nil
 }
 
-// deduplicate sorts and orders the entry's values. If values are already deduped and sorted,
+// sort and orders the entry's values. If values are already deduped and sorted,
 // the function does no work and simply returns.
 func (e *entry) deduplicate() {
 	e.mu.Lock()
@@ -144,7 +144,7 @@ func (e *entry) InfluxQLType() (influxql.DataType, error) {
 	return e.values.InfluxQLType()
 }
 
-// storer is the interface that descibes a cache's store.
+// interface that describes a cache's store.
 type storer interface {
 	entry(key []byte) *entry                        // Get an entry by its key.
 	write(key []byte, values Values) (bool, error)  // Write an entry to the store.
@@ -157,7 +157,7 @@ type storer interface {
 	count() int                                     // Count returns the number of keys in the store
 }
 
-// Cache maintains an in-memory store of Values for a set of keys.
+// maintains an in-memory store of Values for a set of keys.
 type Cache struct {
 	// Due to a bug in atomic  size needs to be the first word in the struct, as
 	// that's the only place where you're guaranteed to be 64-bit aligned on a
@@ -169,7 +169,7 @@ type Cache struct {
 	store   storer
 	maxSize uint64 // 对应 storage-cache-max-memory-size
 
-	// snapshots are the cache objects that are currently being written to tsm files
+	// snapshots 是cache的即将要写入tsm文件的内容
 	// they're kept in memory while flushing so they can be queried along with the cache.
 	// they are read only and should never be modified
 	snapshot     *Cache
@@ -290,7 +290,7 @@ func newCacheMetrics(tags tsdb.EngineTags) *cacheMetrics {
 
 // initializes the cache and allocates the underlying store.
 // Once initialized, the store re-used until Freed.
-func (cache *Cache) init() {
+func (cache *Cache) initIfNeed() {
 	if !atomic.CompareAndSwapUint32(&cache.initializedCount, 0, 1) {
 		return
 	}
@@ -317,7 +317,7 @@ func (cache *Cache) Free() {
 // values as possible.  If one key fails, the others can still succeed and an
 // error will be returned.
 func (cache *Cache) WriteMulti(values map[string][]Value) error {
-	cache.init()
+	cache.initIfNeed()
 	cache.stats.Writes.Inc()
 	var addedSize uint64
 	for _, v := range values {
@@ -370,10 +370,10 @@ func (cache *Cache) WriteMulti(values map[string][]Value) error {
 	return werr
 }
 
-// takes a snapshot of the current cache, adds it to the slice of caches that
+// 其实只是内存上互换变量偷换出来, adds it to the slice of caches that
 // are being flushed, and resets the current cache with new values.
 func (cache *Cache) Snapshot() (*Cache, error) {
-	cache.init()
+	cache.initIfNeed()
 
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -406,9 +406,9 @@ func (cache *Cache) Snapshot() (*Cache, error) {
 	cache.snapshot.store, cache.store = cache.store, cache.snapshot.store // 互换底部的store 想到了leveldb的memtable和immutable memtable
 	snapshotSize := cache.Size()
 
-	// Save the size of the snapshot on the snapshot cache
+	//
 	atomic.StoreUint64(&cache.snapshot.size, snapshotSize)
-	// Save the size of the snapshot on the live cache
+	//
 	atomic.StoreUint64(&cache.snapshotSize, snapshotSize)
 
 	// Reset the cache's store.
@@ -419,7 +419,7 @@ func (cache *Cache) Snapshot() (*Cache, error) {
 	return cache.snapshot, nil
 }
 
-// Deduplicate sorts the snapshot before returning it. The compactor and any queries
+// sort the snapshot before returning it. The compactor and any queries
 // coming in while it writes will need the values sorted.
 func (cache *Cache) Deduplicate() {
 	cache.mu.RLock()
@@ -431,10 +431,10 @@ func (cache *Cache) Deduplicate() {
 	_ = store.apply(func(_ []byte, e *entry) error { e.deduplicate(); return nil })
 }
 
-// ClearSnapshot removes the snapshot cache from the list of flushing caches and
-// adjusts the size.
+// removes the snapshot cache from the list of flushing caches and
+// adjusts the size
 func (cache *Cache) ClearSnapshot(success bool) {
-	cache.init()
+	cache.initIfNeed()
 
 	cache.mu.RLock()
 	snapStore := cache.snapshot.store
@@ -457,10 +457,10 @@ func (cache *Cache) ClearSnapshot(success bool) {
 		cache.snapshot = &Cache{
 			store: cache.snapshot.store,
 		}
-		cache.stats.DiskBytes.Set(float64(atomic.LoadUint64(&cache.snapshotSize)))
+		//cache.stats.DiskBytes.Set(float64(atomic.LoadUint64(&cache.snapshotSize)))
 		atomic.StoreUint64(&cache.snapshotSize, 0)
 	}
-	cache.stats.MemBytes.Set(float64(cache.Size()))
+	//cache.stats.MemBytes.Set(float64(cache.Size()))
 }
 
 // Size returns the number of point-calcuated bytes the cache currently uses.
@@ -613,7 +613,7 @@ func (cache *Cache) Delete(keys [][]byte) {
 //
 // TODO(edd): Lock usage could possibly be optimised if necessary.
 func (cache *Cache) DeleteRange(keys [][]byte, min, max int64) {
-	cache.init()
+	cache.initIfNeed()
 
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
@@ -739,7 +739,7 @@ func (cacheLoader *CacheLoader) Load(cache *Cache) error {
 
 				switch t := entry.(type) {
 				case *WriteWALEntry:
-					if err := cache.WriteMulti(t.Values); err != nil {
+					if err := cache.WriteMulti(t.MeasurementTagsFieldKey2FieldValues); err != nil {
 						return err
 					}
 				case *DeleteRangeWALEntry:
@@ -796,12 +796,12 @@ func valueType(v Value) byte {
 
 type emptyStore struct{}
 
-func (e emptyStore) entry(key []byte) *entry                        { return nil }
-func (e emptyStore) write(key []byte, values Values) (bool, error)  { return false, nil }
-func (e emptyStore) remove(key []byte)                              {}
-func (e emptyStore) keys(sorted bool) [][]byte                      { return nil }
-func (e emptyStore) apply(f func([]byte, *entry) error) error       { return nil }
-func (e emptyStore) applySerial(f func([]byte, *entry) error) error { return nil }
-func (e emptyStore) reset()                                         {}
-func (e emptyStore) split(n int) []storer                           { return nil }
-func (e emptyStore) count() int                                     { return 0 }
+func (e emptyStore) entry([]byte) *entry                          { return nil }
+func (e emptyStore) write([]byte, Values) (bool, error)           { return false, nil }
+func (e emptyStore) remove([]byte)                                {}
+func (e emptyStore) keys(bool) [][]byte                           { return nil }
+func (e emptyStore) apply(func([]byte, *entry) error) error       { return nil }
+func (e emptyStore) applySerial(func([]byte, *entry) error) error { return nil }
+func (e emptyStore) reset()                                       {}
+func (e emptyStore) split(int) []storer                           { return nil }
+func (e emptyStore) count() int                                   { return 0 }

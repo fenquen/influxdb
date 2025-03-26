@@ -47,9 +47,9 @@ const (
 )
 
 var (
-	errMaxFileExceeded     = fmt.Errorf("max file exceeded")
-	errSnapshotsDisabled   = fmt.Errorf("snapshots disabled")
-	errCompactionsDisabled = fmt.Errorf("compactions disabled")
+	errMaxTsmFileSizeExceeded = fmt.Errorf("max tsm file size exceeded")
+	errSnapshotsDisabled      = fmt.Errorf("snapshots disabled")
+	errCompactionsDisabled    = fmt.Errorf("compactions disabled")
 )
 
 type errCompactionInProgress struct {
@@ -703,11 +703,11 @@ func (defaultPlanner *DefaultPlanner) Release(groups []CompactionGroup) {
 	}
 }
 
-// Compactor merges multiple TSM files into new files or
+// merges multiple TSM files into new files or
 // writes a Cache into 1 or more TSM files.
 type Compactor struct {
-	Dir  string
-	Size int
+	DirPath string // 其实是shard.path  证明tsm1.engine.go:185
+	Size    int
 
 	FileStore interface {
 		NextGeneration() int
@@ -717,8 +717,8 @@ type Compactor struct {
 	// RateLimit is the limit for disk writes for all concurrent compactions.
 	RateLimit limiter.Rate
 
-	formatFileName FormatFileNameFunc
-	parseFileName  ParseFileNameFunc
+	formatFileNameFunc FormatFileNameFunc // DefaultFormatFileName
+	parseFileNameFunc  ParseFileNameFunc  // DefaultParseFileName
 
 	mu                 sync.RWMutex
 	snapshotsEnabled   bool
@@ -740,145 +740,145 @@ type Compactor struct {
 // NewCompactor returns a new instance of Compactor.
 func NewCompactor() *Compactor {
 	return &Compactor{
-		formatFileName: DefaultFormatFileName,
-		parseFileName:  DefaultParseFileName,
+		formatFileNameFunc: DefaultFormatFileName,
+		parseFileNameFunc:  DefaultParseFileName,
 	}
 }
 
-func (c *Compactor) WithFormatFileNameFunc(formatFileNameFunc FormatFileNameFunc) {
-	c.formatFileName = formatFileNameFunc
+func (compactor *Compactor) WithFormatFileNameFunc(formatFileNameFunc FormatFileNameFunc) {
+	compactor.formatFileNameFunc = formatFileNameFunc
 }
 
-func (c *Compactor) WithParseFileNameFunc(parseFileNameFunc ParseFileNameFunc) {
-	c.parseFileName = parseFileNameFunc
+func (compactor *Compactor) WithParseFileNameFunc(parseFileNameFunc ParseFileNameFunc) {
+	compactor.parseFileNameFunc = parseFileNameFunc
 }
 
 // Open initializes the Compactor.
-func (c *Compactor) Open() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.snapshotsEnabled || c.compactionsEnabled {
+func (compactor *Compactor) Open() {
+	compactor.mu.Lock()
+	defer compactor.mu.Unlock()
+	if compactor.snapshotsEnabled || compactor.compactionsEnabled {
 		return
 	}
 
-	c.snapshotsEnabled = true
-	c.compactionsEnabled = true
-	c.snapshotsInterrupt = make(chan struct{})
-	c.compactionsInterrupt = make(chan struct{})
-	c.snapshotLatencies = &latencies{values: make([]time.Duration, 4)}
+	compactor.snapshotsEnabled = true
+	compactor.compactionsEnabled = true
+	compactor.snapshotsInterrupt = make(chan struct{})
+	compactor.compactionsInterrupt = make(chan struct{})
+	compactor.snapshotLatencies = &latencies{values: make([]time.Duration, 4)}
 
-	c.files = make(map[string]struct{})
+	compactor.files = make(map[string]struct{})
 }
 
 // Close disables the Compactor.
-func (c *Compactor) Close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !(c.snapshotsEnabled || c.compactionsEnabled) {
+func (compactor *Compactor) Close() {
+	compactor.mu.Lock()
+	defer compactor.mu.Unlock()
+	if !(compactor.snapshotsEnabled || compactor.compactionsEnabled) {
 		return
 	}
-	c.snapshotsEnabled = false
-	c.compactionsEnabled = false
-	if c.compactionsInterrupt != nil {
-		close(c.compactionsInterrupt)
+	compactor.snapshotsEnabled = false
+	compactor.compactionsEnabled = false
+	if compactor.compactionsInterrupt != nil {
+		close(compactor.compactionsInterrupt)
 	}
-	if c.snapshotsInterrupt != nil {
-		close(c.snapshotsInterrupt)
+	if compactor.snapshotsInterrupt != nil {
+		close(compactor.snapshotsInterrupt)
 	}
 }
 
 // DisableSnapshots disables the compactor from performing snapshots.
-func (c *Compactor) DisableSnapshots() {
-	c.mu.Lock()
-	c.snapshotsEnabled = false
-	if c.snapshotsInterrupt != nil {
-		close(c.snapshotsInterrupt)
-		c.snapshotsInterrupt = nil
+func (compactor *Compactor) DisableSnapshots() {
+	compactor.mu.Lock()
+	compactor.snapshotsEnabled = false
+	if compactor.snapshotsInterrupt != nil {
+		close(compactor.snapshotsInterrupt)
+		compactor.snapshotsInterrupt = nil
 	}
-	c.mu.Unlock()
+	compactor.mu.Unlock()
 }
 
 // allows the compactor to perform snapshots.
-func (c *Compactor) EnableSnapshots() {
-	c.mu.Lock()
-	c.snapshotsEnabled = true
-	if c.snapshotsInterrupt == nil {
-		c.snapshotsInterrupt = make(chan struct{})
+func (compactor *Compactor) EnableSnapshots() {
+	compactor.mu.Lock()
+	compactor.snapshotsEnabled = true
+	if compactor.snapshotsInterrupt == nil {
+		compactor.snapshotsInterrupt = make(chan struct{})
 	}
-	c.mu.Unlock()
+	compactor.mu.Unlock()
 }
 
 // DisableSnapshots disables the compactor from performing compactions.
-func (c *Compactor) DisableCompactions() {
-	c.mu.Lock()
-	c.compactionsEnabled = false
-	if c.compactionsInterrupt != nil {
-		close(c.compactionsInterrupt)
-		c.compactionsInterrupt = nil
+func (compactor *Compactor) DisableCompactions() {
+	compactor.mu.Lock()
+	compactor.compactionsEnabled = false
+	if compactor.compactionsInterrupt != nil {
+		close(compactor.compactionsInterrupt)
+		compactor.compactionsInterrupt = nil
 	}
-	c.mu.Unlock()
+	compactor.mu.Unlock()
 }
 
 // EnableCompactions allows the compactor to perform compactions.
-func (c *Compactor) EnableCompactions() {
-	c.mu.Lock()
-	c.compactionsEnabled = true
-	if c.compactionsInterrupt == nil {
-		c.compactionsInterrupt = make(chan struct{})
+func (compactor *Compactor) EnableCompactions() {
+	compactor.mu.Lock()
+	compactor.compactionsEnabled = true
+	if compactor.compactionsInterrupt == nil {
+		compactor.compactionsInterrupt = make(chan struct{})
 	}
-	c.mu.Unlock()
+	compactor.mu.Unlock()
 }
 
-// write a Cache snapshot to one or more new TSM files.
-func (c *Compactor) WriteSnapshot(cache *Cache, logger *zap.Logger) ([]string, error) {
-	c.mu.RLock()
-	enabled := c.snapshotsEnabled
-	intC := c.snapshotsInterrupt
-	c.mu.RUnlock()
+// write a cache snapshot to one or more new TSM files
+func (compactor *Compactor) WriteSnapshot(cacheSnapshot *Cache, logger *zap.Logger) ([]string, error) {
+	compactor.mu.RLock()
+	enabled := compactor.snapshotsEnabled
+	intC := compactor.snapshotsInterrupt
+	compactor.mu.RUnlock()
 
 	if !enabled {
 		return nil, errSnapshotsDisabled
 	}
 
 	start := time.Now()
-	card := cache.Count()
+	count := cacheSnapshot.Count()
 
-	// Enable throttling if we have lower cardinality or snapshots are going fast.
-	throttle := card < 3e6 && c.snapshotLatencies.avg() < 15*time.Second
+	// Enable throttling if we have lower count or snapshots are going fast
+	useThrottle := count < 3e6 && compactor.snapshotLatencies.avg() < 15*time.Second
 
-	// Write snapshot concurrently if cardinality is relatively high.
-	concurrency := card / 2e6
+	// Write snapshot concurrently if count is relatively high.
+	concurrency := count / 2e6
 	if concurrency < 1 {
 		concurrency = 1
 	}
 
-	// Special case very high cardinality, use max concurrency and don't throttle writes.
-	if card >= 3e6 {
+	// Special case very high count, use max concurrency and don't throttle writes.
+	if count >= 3e6 {
 		concurrency = 4
-		throttle = false
+		useThrottle = false
 	}
 
-	splits := cache.Split(concurrency)
+	splitCacheSnapshots := cacheSnapshot.Split(concurrency)
 
 	type res struct {
 		files []string
 		err   error
 	}
 
-	resC := make(chan res, concurrency)
+	resultChan := make(chan res, concurrency)
 	for i := 0; i < concurrency; i++ {
-		go func(sp *Cache) {
-			iter := NewCacheKeyIterator(sp, tsdb.DefaultMaxPointsPerBlock, intC)
-			files, err := c.writeNewFiles(c.FileStore.NextGeneration(), 0, nil, iter, throttle, logger)
-			resC <- res{files: files, err: err}
+		go func(splitCacheSnapshot *Cache) {
+			cacheKeyIter := NewCacheKeyIterator(splitCacheSnapshot, tsdb.DefaultMaxPointsPerBlock, intC)
+			files, err := compactor.writeNewTsmFiles(compactor.FileStore.NextGeneration(), 0, nil, cacheKeyIter, useThrottle, logger)
+			resultChan <- res{files: files, err: err}
 
-		}(splits[i])
+		}(splitCacheSnapshots[i])
 	}
 
 	var err error
 	files := make([]string, 0, concurrency)
 	for i := 0; i < concurrency; i++ {
-		result := <-resC
+		result := <-resultChan
 		if result.err != nil {
 			err = result.err
 		}
@@ -887,13 +887,13 @@ func (c *Compactor) WriteSnapshot(cache *Cache, logger *zap.Logger) ([]string, e
 
 	dur := time.Since(start).Truncate(time.Second)
 
-	c.mu.Lock()
+	compactor.mu.Lock()
 
 	// See if we were disabled while writing a snapshot
-	enabled = c.snapshotsEnabled
-	c.lastSnapshotDuration = dur
-	c.snapshotLatencies.add(time.Since(start))
-	c.mu.Unlock()
+	enabled = compactor.snapshotsEnabled
+	compactor.lastSnapshotDuration = dur
+	compactor.snapshotLatencies.add(time.Since(start))
+	compactor.mu.Unlock()
 
 	if !enabled {
 		return nil, errSnapshotsDisabled
@@ -902,23 +902,23 @@ func (c *Compactor) WriteSnapshot(cache *Cache, logger *zap.Logger) ([]string, e
 	return files, err
 }
 
-// compact writes multiple smaller TSM files into 1 or more larger files.
-func (c *Compactor) compact(fast bool, tsmFiles []string, logger *zap.Logger) ([]string, error) {
-	size := c.Size
+// write multiple smaller TSM files into 1 or more larger files
+func (compactor *Compactor) compact(fast bool, tsmFiles []string, logger *zap.Logger) ([]string, error) {
+	size := compactor.Size
 	if size <= 0 {
 		size = tsdb.DefaultMaxPointsPerBlock
 	}
 
-	c.mu.RLock()
-	intC := c.compactionsInterrupt
-	c.mu.RUnlock()
+	compactor.mu.RLock()
+	intC := compactor.compactionsInterrupt
+	compactor.mu.RUnlock()
 
 	// The new compacted files need to added to the max generation in the
 	// set.  We need to find that max generation as well as the max sequence
 	// number to ensure we write to the next unique location.
 	var maxGeneration, maxSequence int
 	for _, f := range tsmFiles {
-		gen, seq, err := c.parseFileName(f)
+		gen, seq, err := compactor.parseFileNameFunc(f)
 		if err != nil {
 			return nil, err
 		}
@@ -934,7 +934,7 @@ func (c *Compactor) compact(fast bool, tsmFiles []string, logger *zap.Logger) ([
 	}
 
 	// For each TSM file, create a TSM reader
-	var trs []*TSMReader
+	var tsmReaders []*TSMReader
 	for _, file := range tsmFiles {
 		select {
 		case <-intC:
@@ -942,54 +942,54 @@ func (c *Compactor) compact(fast bool, tsmFiles []string, logger *zap.Logger) ([
 		default:
 		}
 
-		tr := c.FileStore.TSMReader(file)
-		if tr == nil {
+		tsmReader := compactor.FileStore.TSMReader(file)
+		if tsmReader == nil {
 			// This would be a bug if this occurred as tsmFiles passed in should only be
 			// assigned to one compaction at any one time.  A nil tr would mean the file
 			// doesn't exist.
 			return nil, errCompactionAborted{fmt.Errorf("bad plan: %s", file)}
 		}
-		defer tr.Unref() // inform that we're done with this reader when this method returns.
-		trs = append(trs, tr)
+		defer tsmReader.Unref() // inform that we're done with this reader when this method returns.
+		tsmReaders = append(tsmReaders, tsmReader)
 	}
 
-	if len(trs) == 0 {
+	if len(tsmReaders) == 0 {
 		logger.Debug("No input files")
 		return nil, nil
 	}
 
-	tsm, err := NewTSMBatchKeyIterator(size, fast, DefaultMaxSavedErrors, intC, tsmFiles, trs...)
+	tsm, err := NewTSMBatchKeyIterator(size, fast, DefaultMaxSavedErrors, intC, tsmFiles, tsmReaders...)
 	if err != nil {
 		return nil, err
 	}
 
-	return c.writeNewFiles(maxGeneration, maxSequence, tsmFiles, tsm, true, logger)
+	return compactor.writeNewTsmFiles(maxGeneration, maxSequence, tsmFiles, tsm, true, logger)
 }
 
 // CompactFull writes multiple smaller TSM files into 1 or more larger files.
-func (c *Compactor) CompactFull(tsmFiles []string, logger *zap.Logger) ([]string, error) {
-	c.mu.RLock()
-	enabled := c.compactionsEnabled
-	c.mu.RUnlock()
+func (compactor *Compactor) CompactFull(tsmFiles []string, logger *zap.Logger) ([]string, error) {
+	compactor.mu.RLock()
+	enabled := compactor.compactionsEnabled
+	compactor.mu.RUnlock()
 
 	if !enabled {
 		return nil, errCompactionsDisabled
 	}
 
-	if !c.add(tsmFiles) {
+	if !compactor.add(tsmFiles) {
 		return nil, errCompactionInProgress{}
 	}
-	defer c.remove(tsmFiles)
+	defer compactor.remove(tsmFiles)
 
-	files, err := c.compact(false, tsmFiles, logger)
+	files, err := compactor.compact(false, tsmFiles, logger)
 
 	// See if we were disabled while writing a snapshot
-	c.mu.RLock()
-	enabled = c.compactionsEnabled
-	c.mu.RUnlock()
+	compactor.mu.RLock()
+	enabled = compactor.compactionsEnabled
+	compactor.mu.RUnlock()
 
 	if !enabled {
-		if err := c.removeTmpFiles(files); err != nil {
+		if err := compactor.removeTmpFiles(files); err != nil {
 			return nil, err
 		}
 		return nil, errCompactionsDisabled
@@ -999,29 +999,29 @@ func (c *Compactor) CompactFull(tsmFiles []string, logger *zap.Logger) ([]string
 }
 
 // CompactFast writes multiple smaller TSM files into 1 or more larger files.
-func (c *Compactor) CompactFast(tsmFiles []string, logger *zap.Logger) ([]string, error) {
-	c.mu.RLock()
-	enabled := c.compactionsEnabled
-	c.mu.RUnlock()
+func (compactor *Compactor) CompactFast(tsmFiles []string, logger *zap.Logger) ([]string, error) {
+	compactor.mu.RLock()
+	enabled := compactor.compactionsEnabled
+	compactor.mu.RUnlock()
 
 	if !enabled {
 		return nil, errCompactionsDisabled
 	}
 
-	if !c.add(tsmFiles) {
+	if !compactor.add(tsmFiles) {
 		return nil, errCompactionInProgress{}
 	}
-	defer c.remove(tsmFiles)
+	defer compactor.remove(tsmFiles)
 
-	files, err := c.compact(true, tsmFiles, logger)
+	files, err := compactor.compact(true, tsmFiles, logger)
 
 	// See if we were disabled while writing a snapshot
-	c.mu.RLock()
-	enabled = c.compactionsEnabled
-	c.mu.RUnlock()
+	compactor.mu.RLock()
+	enabled = compactor.compactionsEnabled
+	compactor.mu.RUnlock()
 
 	if !enabled {
-		if err := c.removeTmpFiles(files); err != nil {
+		if err := compactor.removeTmpFiles(files); err != nil {
 			return nil, err
 		}
 		return nil, errCompactionsDisabled
@@ -1033,7 +1033,7 @@ func (c *Compactor) CompactFast(tsmFiles []string, logger *zap.Logger) ([]string
 
 // removeTmpFiles is responsible for cleaning up a compaction that
 // was started, but then abandoned before the temporary files were dealt with.
-func (c *Compactor) removeTmpFiles(files []string) error {
+func (compactor *Compactor) removeTmpFiles(files []string) error {
 	for _, f := range files {
 		if err := os.Remove(f); err != nil {
 			return fmt.Errorf("error removing temp compaction file: %v", err)
@@ -1042,33 +1042,33 @@ func (c *Compactor) removeTmpFiles(files []string) error {
 	return nil
 }
 
-// writeNewFiles writes from the iterator into new TSM files, rotating
-// to a new file once it has reached the max TSM file size.
-func (c *Compactor) writeNewFiles(generation, sequence int, src []string, iter KeyIterator, throttle bool, logger *zap.Logger) ([]string, error) {
+// transfer data from the iterator into new TSM files
+// rotating to a new file once it has reached the max TSM file size.
+func (compactor *Compactor) writeNewTsmFiles(generation, sequence int, src []string, keyIterator KeyIterator, throttle bool, logger *zap.Logger) ([]string, error) {
 	// These are the new TSM files written
 	var files []string
 
 	for {
 		sequence++
 
-		// New TSM files are written to a temp file and renamed when fully completed.
-		fileName := filepath.Join(c.Dir, c.formatFileName(generation, sequence)+"."+TSMFileExtension+"."+TmpTSMFileExtension)
-		logger.Debug("Compacting files", zap.Int("file_count", len(src)), zap.String("output_file", fileName))
+		// dirPath/generation-sequence.tsm.tmp
+		filePath := filepath.Join(compactor.DirPath, compactor.formatFileNameFunc(generation, sequence)+"."+TSMFileExtension+"."+TmpTSMFileExtension)
+		logger.Debug("Compacting files", zap.Int("file_count", len(src)), zap.String("output_file", filePath))
 
 		// Write as much as possible to this file
-		err := c.write(fileName, iter, throttle, logger)
+		err := compactor.write(filePath, keyIterator, throttle, logger)
 
 		// We've hit the max file limit and there is more to write.  Create a new file
 		// and continue.
-		if err == errMaxFileExceeded || err == ErrMaxBlocksExceeded {
-			files = append(files, fileName)
-			logger.Debug("file size or block count exceeded, opening another output file", zap.String("output_file", fileName))
+		if err == errMaxTsmFileSizeExceeded || err == ErrMaxBlocksExceeded {
+			files = append(files, filePath)
+			logger.Debug("file size or block count exceeded, opening another output file", zap.String("output_file", filePath))
 			continue
 		} else if err == ErrNoValues {
-			logger.Debug("Dropping empty file", zap.String("output_file", fileName))
+			logger.Debug("Dropping empty file", zap.String("output_file", filePath))
 			// If the file only contained tombstoned entries, then it would be a 0 length
 			// file that we can drop.
-			if err := os.RemoveAll(fileName); err != nil {
+			if err = os.RemoveAll(filePath); err != nil {
 				return nil, err
 			}
 			break
@@ -1085,18 +1085,18 @@ func (c *Compactor) writeNewFiles(generation, sequence int, src []string, iter K
 			}
 			// Remove the temp file
 			// discard later errors to return the first one from the write() call
-			_ = os.RemoveAll(fileName)
+			_ = os.RemoveAll(filePath)
 			return nil, err
 		}
 
-		files = append(files, fileName)
+		files = append(files, filePath)
 		break
 	}
 
 	return files, nil
 }
 
-func (c *Compactor) write(path string, iter KeyIterator, throttle bool, logger *zap.Logger) (err error) {
+func (compactor *Compactor) write(path string, iter KeyIterator, throttle bool, logger *zap.Logger) (err error) {
 	fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0666)
 	if err != nil {
 		return errCompactionInProgress{err: err}
@@ -1116,8 +1116,8 @@ func (c *Compactor) write(path string, iter KeyIterator, throttle bool, logger *
 		limitWriter syncingWriter = fd
 	)
 
-	if c.RateLimit != nil && throttle {
-		limitWriter = limiter.NewWriterWithRate(fd, c.RateLimit)
+	if compactor.RateLimit != nil && throttle {
+		limitWriter = limiter.NewWriterWithRate(fd, compactor.RateLimit)
 	}
 
 	// Use a disk based TSM buffer if it looks like we might create a big index
@@ -1143,7 +1143,7 @@ func (c *Compactor) write(path string, iter KeyIterator, throttle bool, logger *
 		// Check for errors where we should not remove the file
 		_, inProgress := err.(errCompactionInProgress)
 		maxBlocks := err == ErrMaxBlocksExceeded
-		maxFileSize := err == errMaxFileExceeded
+		maxFileSize := err == errMaxTsmFileSizeExceeded
 		if inProgress || maxBlocks || maxFileSize {
 			return
 		}
@@ -1155,9 +1155,9 @@ func (c *Compactor) write(path string, iter KeyIterator, throttle bool, logger *
 
 	lastLogSize := w.Size()
 	for iter.Next() {
-		c.mu.RLock()
-		enabled := c.snapshotsEnabled || c.compactionsEnabled
-		c.mu.RUnlock()
+		compactor.mu.RLock()
+		enabled := compactor.snapshotsEnabled || compactor.compactionsEnabled
+		compactor.mu.RUnlock()
 
 		if !enabled {
 			return errCompactionAborted{}
@@ -1191,7 +1191,7 @@ func (c *Compactor) write(path string, iter KeyIterator, throttle bool, logger *
 				return err
 			}
 
-			return errMaxFileExceeded
+			return errMaxTsmFileSizeExceeded
 		} else if (w.Size() - lastLogSize) > logEvery {
 			logger.Debug("Compaction progress", zap.String("output_file", path), zap.Uint32("size", w.Size()))
 			lastLogSize = w.Size()
@@ -1211,29 +1211,29 @@ func (c *Compactor) write(path string, iter KeyIterator, throttle bool, logger *
 	return nil
 }
 
-func (c *Compactor) add(files []string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (compactor *Compactor) add(files []string) bool {
+	compactor.mu.Lock()
+	defer compactor.mu.Unlock()
 
 	// See if the new files are already in use
 	for _, f := range files {
-		if _, ok := c.files[f]; ok {
+		if _, ok := compactor.files[f]; ok {
 			return false
 		}
 	}
 
 	// Mark all the new files in use
 	for _, f := range files {
-		c.files[f] = struct{}{}
+		compactor.files[f] = struct{}{}
 	}
 	return true
 }
 
-func (c *Compactor) remove(files []string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (compactor *Compactor) remove(files []string) {
+	compactor.mu.Lock()
+	defer compactor.mu.Unlock()
 	for _, f := range files {
-		delete(c.files, f)
+		delete(compactor.files, f)
 	}
 }
 
@@ -1654,13 +1654,13 @@ func (k *tsmBatchKeyIterator) Err() error {
 type cacheKeyIterator struct {
 	cache *Cache
 	size  int
-	order [][]byte
+	keys  [][]byte
 
-	i         int
-	blocks    [][]cacheBlock
-	ready     []chan struct{}
-	interrupt chan struct{}
-	err       error
+	currentIndex      int
+	cacheBlocksPerKey [][]cacheBlock
+	readyChanPerKey   []chan struct{}
+	interruptChan     chan struct{}
+	err               error
 }
 
 type cacheBlock struct {
@@ -1670,69 +1670,69 @@ type cacheBlock struct {
 	err              error
 }
 
-// NewCacheKeyIterator returns a new KeyIterator from a Cache.
-func NewCacheKeyIterator(cache *Cache, size int, interrupt chan struct{}) KeyIterator {
+// returns a new KeyIterator from a Cache.
+func NewCacheKeyIterator(cache *Cache, size int, interruptChan chan struct{}) KeyIterator {
 	keys := cache.Keys()
 
-	chans := make([]chan struct{}, len(keys))
+	readyChanPerKey := make([]chan struct{}, len(keys))
 	for i := 0; i < len(keys); i++ {
-		chans[i] = make(chan struct{}, 1)
+		readyChanPerKey[i] = make(chan struct{}, 1)
 	}
 
-	cki := &cacheKeyIterator{
-		i:         -1,
-		size:      size,
-		cache:     cache,
-		order:     keys,
-		ready:     chans,
-		blocks:    make([][]cacheBlock, len(keys)),
-		interrupt: interrupt,
+	iterator := &cacheKeyIterator{
+		currentIndex:      -1,
+		size:              size,
+		cache:             cache,
+		keys:              keys,
+		readyChanPerKey:   readyChanPerKey,
+		cacheBlocksPerKey: make([][]cacheBlock, len(keys)),
+		interruptChan:     interruptChan,
 	}
-	go cki.encode()
-	return cki
+	go iterator.encode()
+	return iterator
 }
 
 func (c *cacheKeyIterator) EstimatedIndexSize() int {
 	var n int
-	for _, v := range c.order {
+	for _, v := range c.keys {
 		n += len(v)
 	}
 	return n
 }
 
 func (c *cacheKeyIterator) encode() {
-	concurrency := runtime.GOMAXPROCS(0)
-	n := len(c.ready)
+	//
+	keyCount := len(c.readyChanPerKey)
 
 	// Divide the keyset across each CPU
 	chunkSize := 1
 	idx := uint64(0)
 
-	for i := 0; i < concurrency; i++ {
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
 		// Run one goroutine per CPU and encode a section of the key space concurrently
 		go func() {
-			tenc := getTimeEncoder(tsdb.DefaultMaxPointsPerBlock)
-			fenc := getFloatEncoder(tsdb.DefaultMaxPointsPerBlock)
-			benc := getBooleanEncoder(tsdb.DefaultMaxPointsPerBlock)
-			uenc := getUnsignedEncoder(tsdb.DefaultMaxPointsPerBlock)
-			senc := getStringEncoder(tsdb.DefaultMaxPointsPerBlock)
-			ienc := getIntegerEncoder(tsdb.DefaultMaxPointsPerBlock)
+			timeEncoder := getTimeEncoder(tsdb.DefaultMaxPointsPerBlock)
+			floatEncoder := getFloatEncoder(tsdb.DefaultMaxPointsPerBlock)
+			booleanEncoder := getBooleanEncoder(tsdb.DefaultMaxPointsPerBlock)
+			unsignedEncoder := getUnsignedEncoder(tsdb.DefaultMaxPointsPerBlock)
+			stringEncoder := getStringEncoder(tsdb.DefaultMaxPointsPerBlock)
+			integerEncoder := getIntegerEncoder(tsdb.DefaultMaxPointsPerBlock)
 
-			defer putTimeEncoder(tenc)
-			defer putFloatEncoder(fenc)
-			defer putBooleanEncoder(benc)
-			defer putUnsignedEncoder(uenc)
-			defer putStringEncoder(senc)
-			defer putIntegerEncoder(ienc)
+			defer putTimeEncoder(timeEncoder)
+			defer putFloatEncoder(floatEncoder)
+			defer putBooleanEncoder(booleanEncoder)
+			defer putUnsignedEncoder(unsignedEncoder)
+			defer putStringEncoder(stringEncoder)
+			defer putIntegerEncoder(integerEncoder)
 
 			for {
-				i := int(atomic.AddUint64(&idx, uint64(chunkSize))) - chunkSize
+				a := int(atomic.AddUint64(&idx, uint64(chunkSize))) - chunkSize
 
-				if i >= n {
+				if a >= keyCount {
 					break
 				}
 
-				key := c.order[i]
+				key := c.keys[a]
 				values := c.cache.values(key)
 
 				for len(values) > 0 {
@@ -1748,22 +1748,22 @@ func (c *cacheKeyIterator) encode() {
 
 					switch values[0].(type) {
 					case FloatValue:
-						b, err = encodeFloatBlockUsing(nil, values[:end], tenc, fenc)
+						b, err = encodeFloatBlockUsing(nil, values[:end], timeEncoder, floatEncoder)
 					case IntegerValue:
-						b, err = encodeIntegerBlockUsing(nil, values[:end], tenc, ienc)
+						b, err = encodeIntegerBlockUsing(nil, values[:end], timeEncoder, integerEncoder)
 					case UnsignedValue:
-						b, err = encodeUnsignedBlockUsing(nil, values[:end], tenc, uenc)
+						b, err = encodeUnsignedBlockUsing(nil, values[:end], timeEncoder, unsignedEncoder)
 					case BooleanValue:
-						b, err = encodeBooleanBlockUsing(nil, values[:end], tenc, benc)
+						b, err = encodeBooleanBlockUsing(nil, values[:end], timeEncoder, booleanEncoder)
 					case StringValue:
-						b, err = encodeStringBlockUsing(nil, values[:end], tenc, senc)
+						b, err = encodeStringBlockUsing(nil, values[:end], timeEncoder, stringEncoder)
 					default:
-						b, err = Values(values[:end]).Encode(nil)
+						b, err = values[:end].Encode(nil)
 					}
 
 					values = values[end:]
 
-					c.blocks[i] = append(c.blocks[i], cacheBlock{
+					c.cacheBlocksPerKey[a] = append(c.cacheBlocksPerKey[a], cacheBlock{
 						k:       key,
 						minTime: minTime,
 						maxTime: maxTime,
@@ -1776,39 +1776,39 @@ func (c *cacheKeyIterator) encode() {
 					}
 				}
 				// Notify this key is fully encoded
-				c.ready[i] <- struct{}{}
+				c.readyChanPerKey[a] <- struct{}{}
 			}
 		}()
 	}
 }
 
 func (c *cacheKeyIterator) Next() bool {
-	if c.i >= 0 && c.i < len(c.ready) && len(c.blocks[c.i]) > 0 {
-		c.blocks[c.i] = c.blocks[c.i][1:]
-		if len(c.blocks[c.i]) > 0 {
+	if c.currentIndex >= 0 && c.currentIndex < len(c.readyChanPerKey) && len(c.cacheBlocksPerKey[c.currentIndex]) > 0 {
+		c.cacheBlocksPerKey[c.currentIndex] = c.cacheBlocksPerKey[c.currentIndex][1:]
+		if len(c.cacheBlocksPerKey[c.currentIndex]) > 0 {
 			return true
 		}
 	}
-	c.i++
+	c.currentIndex++
 
-	if c.i >= len(c.ready) {
+	if c.currentIndex >= len(c.readyChanPerKey) {
 		return false
 	}
 
-	<-c.ready[c.i]
+	<-c.readyChanPerKey[c.currentIndex]
 	return true
 }
 
 func (c *cacheKeyIterator) Read() ([]byte, int64, int64, []byte, error) {
 	// See if snapshot compactions were disabled while we were running.
 	select {
-	case <-c.interrupt:
+	case <-c.interruptChan:
 		c.err = errCompactionAborted{}
 		return nil, 0, 0, nil, c.err
 	default:
 	}
 
-	blk := c.blocks[c.i][0]
+	blk := c.cacheBlocksPerKey[c.currentIndex][0]
 	return blk.k, blk.minTime, blk.maxTime, blk.b, blk.err
 }
 

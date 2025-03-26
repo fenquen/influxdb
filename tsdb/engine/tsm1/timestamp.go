@@ -62,7 +62,7 @@ type encoder struct {
 	enc   *simple8b.Encoder
 }
 
-// NewTimeEncoder returns a TimeEncoder with an initial buffer ready to hold sz bytes.
+// return a TimeEncoder with an initial buffer ready to hold sz bytes.
 func NewTimeEncoder(sz int) TimeEncoder {
 	return &encoder{
 		ts:  make([]uint64, 0, sz),

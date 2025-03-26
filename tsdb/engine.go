@@ -115,12 +115,12 @@ func RegisteredEngines() []string {
 
 // return an instance of an engine based on its format.
 // If the path does not exist then the DefaultFormat is used.
-func NewEngine(id uint64, i Index, path string, walPath string, sfile *SeriesFile, options EngineOptions) (Engine, error) {
+func NewEngine(id uint64, index Index, path string, walPath string, sfile *SeriesFile, engineOptions EngineOptions) (Engine, error) {
 	// Create a new engine
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		engine := newEngineFuncs[options.EngineVersion](id, i, path, walPath, sfile, options)
-		if options.OnNewEngine != nil {
-			options.OnNewEngine(engine)
+		engine := newEngineFuncs[engineOptions.EngineVersion](id, index, path, walPath, sfile, engineOptions)
+		if engineOptions.OnNewEngine != nil {
+			engineOptions.OnNewEngine(engine)
 		}
 		return engine, nil
 	}
@@ -136,19 +136,19 @@ func NewEngine(id uint64, i Index, path string, walPath string, sfile *SeriesFil
 	}
 
 	// Lookup engine by format.
-	fn := newEngineFuncs[format]
+	fn := newEngineFuncs[format] // fn 对应 tsm1.NewEngine
 	if fn == nil {
 		return nil, fmt.Errorf("invalid engine format: %q", format)
 	}
 
-	engine := fn(id, i, path, walPath, sfile, options) // tsm1 NewEngine
-	if options.OnNewEngine != nil {
-		options.OnNewEngine(engine)
+	engine := fn(id, index, path, walPath, sfile, engineOptions) // tsm1.NewEngine
+	if engineOptions.OnNewEngine != nil {
+		engineOptions.OnNewEngine(engine)
 	}
 	return engine, nil
 }
 
-// EngineOptions represents the options used to initialize the engine.
+// represents the options used to initialize the engine.
 type EngineOptions struct {
 	EngineVersion string
 	IndexVersion  string
@@ -187,7 +187,6 @@ type EngineOptions struct {
 	MetricsDisabled   bool
 }
 
-// constructs an EngineOptions object with safe default values.
 // This should only be used in tests; production environments should read from a config file.
 func NewEngineOptions() EngineOptions {
 	return EngineOptions{

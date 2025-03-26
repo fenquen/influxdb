@@ -161,7 +161,7 @@ var (
 	booleanBlocksSizeCounter     = metrics.MustRegisterCounter("boolean_blocks_size_bytes", metrics.WithGroup(tsmGroup))
 )
 
-// FileStore is an abstraction around multiple TSM files.
+// abstraction around multiple TSM files
 type FileStore struct {
 	mu           sync.RWMutex
 	lastModified time.Time
@@ -170,7 +170,7 @@ type FileStore struct {
 	lastFileStats []FileStat
 
 	currentGeneration int
-	dir               string
+	dirPath           string // 其实是shard.path file_store.go:232
 
 	tsmFiles        []TSMFile     // 其实是tsmFileReader
 	tsmMMAPWillNeed bool          // If true then the kernel will be advised MMAP_WILLNEED for TSM files. 对应 storage-tsm-use-madv-willneed
@@ -225,11 +225,11 @@ func (f FileStat) ContainsKey(key []byte) bool {
 	return bytes.Compare(f.MinKey, key) >= 0 || bytes.Compare(key, f.MaxKey) <= 0
 }
 
-// NewFileStore returns a new instance of FileStore based on the given directory.
+// returns a new instance of FileStore based on the given directory.
 func NewFileStore(dir string, tags tsdb.EngineTags) *FileStore {
 	logger := zap.NewNop()
 	fs := &FileStore{
-		dir:          dir,
+		dirPath:      dir,
 		lastModified: time.Time{},
 		logger:       logger,
 		traceLogger:  logger,
@@ -522,7 +522,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 	defer fileStore.mu.Unlock()
 
 	// Not loading files from disk so nothing to do
-	if fileStore.dir == "" {
+	if fileStore.dirPath == "" {
 		return nil
 	}
 
@@ -531,7 +531,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 	}
 
 	// find the current max ID for temp directories
-	tmpfiles, err := os.ReadDir(fileStore.dir)
+	tmpfiles, err := os.ReadDir(fileStore.dirPath)
 	if err != nil {
 		return err
 	}
@@ -559,7 +559,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 		fileStore.currentTempDirID = i
 	}
 
-	tsmFilePaths, err := filepath.Glob(filepath.Join(fileStore.dir, "*."+TSMFileExtension))
+	tsmFilePaths, err := filepath.Glob(filepath.Join(fileStore.dirPath, "*."+TSMFileExtension))
 	if err != nil {
 		return err
 	}
@@ -609,7 +609,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 			// the file, and continue loading the shard without it.
 			if err != nil {
 				fileStore.logger.Error("Cannot read corrupt tsm file, renaming", zap.String("path", tsmFile.Name()), zap.Int("id", idx), zap.Error(err))
-				tsmFile.Close()
+				_ = tsmFile.Close()
 				if e := os.Rename(tsmFile.Name(), tsmFile.Name()+"."+BadTSMFileExtension); e != nil {
 					fileStore.logger.Error("Cannot rename corrupt tsm file", zap.String("path", tsmFile.Name()), zap.Int("id", idx), zap.Error(e))
 					readerC <- &res{tsmReader: tsmReader, err: fmt.Errorf("cannot rename corrupt file %s: %v", tsmFile.Name(), e)}
@@ -648,7 +648,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 		isEmpty = false
 	}
 	if isEmpty {
-		if fi, err := os.Stat(fileStore.dir); err == nil {
+		if fi, err := os.Stat(fileStore.dirPath); err == nil {
 			fileStore.lastModified = fi.ModTime().UTC()
 		} else {
 			close(readerC)
@@ -781,7 +781,7 @@ func (fileStore *FileStore) ReplaceWithCallback(oldFiles, newFiles []string, upd
 	return fileStore.replace(oldFiles, newFiles, updatedFn)
 }
 
-// Replace replaces oldFiles with newFiles.
+// replace oldFiles with newFiles
 func (fileStore *FileStore) Replace(oldFiles, newFiles []string) error {
 	return fileStore.replace(oldFiles, newFiles, nil)
 }
@@ -799,21 +799,21 @@ func (fileStore *FileStore) replace(oldFiles, newFiles []string, updatedFn func(
 	tsmTmpExt := fmt.Sprintf("%s.%s", TSMFileExtension, TmpTSMFileExtension)
 
 	// Rename all the new files to make them live on restart
-	for _, file := range newFiles {
-		if !strings.HasSuffix(file, tsmTmpExt) && !strings.HasSuffix(file, TSMFileExtension) {
+	for _, newFile := range newFiles {
+		if !strings.HasSuffix(newFile, tsmTmpExt) && !strings.HasSuffix(newFile, TSMFileExtension) {
 			// This isn't a .tsm or .tsm.tmp file.
 			continue
 		}
 
 		// give the observer a chance to process the file first.
-		if err := fileStore.obs.FileFinishing(file); err != nil {
+		if err := fileStore.obs.FileFinishing(newFile); err != nil {
 			return err
 		}
 
-		var oldName, newName = file, file
+		var oldName, newName = newFile, newFile
 		if strings.HasSuffix(oldName, tsmTmpExt) {
 			// The new TSM files have a tmp extension.  First rename them.
-			newName = file[:len(file)-4]
+			newName = newFile[:len(newFile)-4]
 			if err := os.Rename(oldName, newName); err != nil {
 				return err
 			}
@@ -937,7 +937,7 @@ func (fileStore *FileStore) replace(oldFiles, newFiles []string, updatedFn func(
 		}
 	}
 
-	if err := file.SyncDir(fileStore.dir); err != nil {
+	if err := file.SyncDir(fileStore.dirPath); err != nil {
 		return err
 	}
 
@@ -1215,7 +1215,7 @@ func (fileStore *FileStore) linkNotCopy(oldPath, newPath string) error {
 // CreateSnapshot creates hardlinks for all tsm and tombstone files
 // in the path provided.
 func (fileStore *FileStore) CreateSnapshot() (string, error) {
-	fileStore.traceLogger.Info("Creating snapshot", zap.String("dir", fileStore.dir))
+	fileStore.traceLogger.Info("Creating snapshot", zap.String("dir", fileStore.dirPath))
 
 	fileStore.mu.Lock()
 	// create a copy of the files slice and ensure they aren't closed out from
@@ -1232,7 +1232,7 @@ func (fileStore *FileStore) CreateSnapshot() (string, error) {
 	// this ensures we are the only writer to the directory.
 	fileStore.currentTempDirID += 1
 	tmpPath := fmt.Sprintf("%d.%s", fileStore.currentTempDirID, TmpTSMFileExtension)
-	tmpPath = filepath.Join(fileStore.dir, tmpPath)
+	tmpPath = filepath.Join(fileStore.dirPath, tmpPath)
 	fileStore.mu.Unlock()
 
 	// create the tmp directory and add the hard links. there is no longer any shared
@@ -1254,15 +1254,14 @@ func (fileStore *FileStore) CreateSnapshot() (string, error) {
 // Source filenames are provided via src.
 type FormatFileNameFunc func(generation, sequence int) string
 
-// DefaultFormatFileName is the default implementation to format TSM filenames.
 func DefaultFormatFileName(generation, sequence int) string {
 	return fmt.Sprintf("%09d-%09d", generation, sequence)
 }
 
-// ParseFileNameFunc is executed when parsing a TSM filename into generation & sequence.
+// executed when parsing a TSM filename into generation & sequence.
 type ParseFileNameFunc func(name string) (generation, sequence int, err error)
 
-// DefaultParseFileName is used to parse the filenames of TSM files.
+// used to parse the filenames of TSM files.
 func DefaultParseFileName(name string) (int, int, error) {
 	base := filepath.Base(name)
 	idx := strings.Index(base, ".")

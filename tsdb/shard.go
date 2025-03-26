@@ -113,15 +113,15 @@ func (e PartialWriteError) Error() string {
 // Data can be split across many shards. The query engine in TSDB is responsible
 // for combining the output of many shards into a single query result.
 type Shard struct {
-	path    string
-	walPath string
+	path    string // store.path/bucketIdStr/retentionPolicyName/shardId 证明 store.go:703
+	walPath string // store.EngineOptions.Config.WALDir/bucketIdStr/retentionPolicyName/shardId 证明 store.go:688
 	id      uint64
 
 	database        string
 	retentionPolicy string
 
-	sfile   *SeriesFile
-	options EngineOptions
+	sfile         *SeriesFile
+	engineOptions EngineOptions
 
 	mu      sync.RWMutex
 	_engine Engine
@@ -142,8 +142,8 @@ type Shard struct {
 	CompactionDisabled bool
 }
 
-// NewShard returns a new initialized Shard. walPath doesn't apply to the b1 type index
-func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt EngineOptions) *Shard {
+// returns a new initialized Shard. walPath doesn't apply to the b1 type index
+func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, engineOptions EngineOptions) *Shard {
 	db, rp := decodeStorePath(path)
 	logger := zap.NewNop()
 
@@ -152,7 +152,7 @@ func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt Eng
 		WalPath:       walPath,
 		Id:            fmt.Sprintf("%d", id),
 		Bucket:        db,
-		EngineVersion: opt.EngineVersion,
+		EngineVersion: engineOptions.EngineVersion,
 	}
 
 	s := &Shard{
@@ -160,7 +160,7 @@ func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt Eng
 		path:            path,
 		walPath:         walPath,
 		sfile:           sfile,
-		options:         opt,
+		engineOptions:   engineOptions,
 		stats:           newShardMetrics(engineTags),
 		database:        db,
 		retentionPolicy: rp,
@@ -390,9 +390,9 @@ func (shard *Shard) openNoLock(ctx context.Context) (bool, error) {
 
 		seriesIDSet := NewSeriesIDSet()
 
-		// Initialize underlying index.
+		// store.path/bucketIdStr/retentionPolicyName/shardId/index
 		indexPath := filepath.Join(shard.path, "index")
-		index, err := NewIndex(shard.id, shard.database, indexPath, seriesIDSet, shard.sfile, shard.options)
+		index, err := NewIndex(shard.id, shard.database, indexPath, seriesIDSet, shard.sfile, shard.engineOptions)
 		if err != nil {
 			return err
 		}
@@ -412,7 +412,7 @@ func (shard *Shard) openNoLock(ctx context.Context) (bool, error) {
 		shard.index = index
 
 		// Initialize underlying engine.
-		engine, err := NewEngine(shard.id, index, shard.path, shard.walPath, shard.sfile, shard.options)
+		engine, err := NewEngine(shard.id, index, shard.path, shard.walPath, shard.sfile, shard.engineOptions)
 		if err != nil {
 			return err
 		}
@@ -445,7 +445,7 @@ func (shard *Shard) openNoLock(ctx context.Context) (bool, error) {
 
 		// We want a way to turn off the series and disk size metrics if they are suspected to cause issues
 		// This corresponds to the top-level MetricsDisabled argument
-		if !shard.options.MetricsDisabled {
+		if !shard.engineOptions.MetricsDisabled {
 			metricUpdater.wg.Add(1)
 			go func() {
 				tick := time.NewTicker(DefaultMetricInterval)
@@ -698,7 +698,7 @@ func (shard *Shard) validateSeriesAndFields(points []models.Point) ([]models.Poi
 	tagsSlice := make([]models.Tags, len(points))
 
 	// Check if keys should be unicode validated.
-	validateKeys := shard.options.Config.ValidateKeys
+	validateKeys := shard.engineOptions.Config.ValidateKeys
 
 	var j int
 	for i, p := range points {
@@ -788,7 +788,7 @@ func (shard *Shard) validateSeriesAndFields(points []models.Point) ([]models.Poi
 		mf := engine.MeasurementFields(name)
 
 		// Check with the field validator.
-		if err := ValidateFields(mf, p, shard.options.Config.SkipFieldSizeValidation); err != nil {
+		if err := ValidateFields(mf, p, shard.engineOptions.Config.SkipFieldSizeValidation); err != nil {
 			switch err := err.(type) {
 			case PartialWriteError:
 				if reason == "" {

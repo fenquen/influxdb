@@ -123,7 +123,7 @@ type Store struct {
 	opened  bool
 }
 
-// NewStore returns a new store with the given path and a default configuration.
+// returns a new store with the given path and a default configuration.
 // The returned store must be initialized by calling Open before using it.
 func NewStore(path string) *Store {
 	return &Store{
@@ -684,7 +684,7 @@ func (store *Store) CreateShard(ctx context.Context, bucketIdStr, retentionPolic
 		return err
 	}
 
-	// Create the WAL directory.
+	// store.EngineOptions.Config.WALDir/bucketIdStr/retentionPolicyName/shardId
 	walPath := filepath.Join(store.EngineOptions.Config.WALDir, bucketIdStr, retentionPolicyName, fmt.Sprintf("%d", shardID))
 	if err := os.MkdirAll(walPath, 0700); err != nil {
 		return err
@@ -697,11 +697,11 @@ func (store *Store) CreateShard(ctx context.Context, bucketIdStr, retentionPolic
 	}
 
 	// Copy index options and pass in shared index.
-	opt := store.EngineOptions
-	opt.SeriesIDSets = shardSet{store: store, db: bucketIdStr}
-
+	engineOptions := store.EngineOptions
+	engineOptions.SeriesIDSets = shardSet{store: store, db: bucketIdStr}
+	// path/bucketIdStr/retentionPolicyName/shardId
 	path := filepath.Join(store.path, bucketIdStr, retentionPolicyName, strconv.FormatUint(shardID, 10))
-	shard := NewShard(shardID, path, walPath, seriesFile, opt)
+	shard := NewShard(shardID, path, walPath, seriesFile, engineOptions)
 	shard.WithLogger(store.baseLogger)
 	shard.EnableOnOpen = enableOnOpen
 

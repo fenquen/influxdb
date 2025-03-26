@@ -200,7 +200,7 @@ func (r *ring) split(n int) []storer {
 	return storers
 }
 
-// partition provides safe access to a map of series keys to entries.
+// provides safe access to a map of series keys to entries.
 type partition struct {
 	mu    sync.RWMutex
 	store map[string]*entry

@@ -369,24 +369,24 @@ func encodeFloatBlock(buf []byte, values []Value) ([]byte, error) {
 	return b, err
 }
 
-func encodeFloatBlockUsing(buf []byte, values []Value, tsenc TimeEncoder, venc *FloatEncoder) ([]byte, error) {
-	tsenc.Reset()
-	venc.Reset()
+func encodeFloatBlockUsing(buf []byte, values []Value, timeEncoder TimeEncoder, floatEncoder *FloatEncoder) ([]byte, error) {
+	timeEncoder.Reset()
+	floatEncoder.Reset()
 
 	for _, v := range values {
 		vv := v.(FloatValue)
-		tsenc.Write(vv.unixnano)
-		venc.Write(vv.value)
+		timeEncoder.Write(vv.unixnano)
+		floatEncoder.Write(vv.value)
 	}
-	venc.Flush()
+	floatEncoder.Flush()
 
 	// Encoded timestamp values
-	tb, err := tsenc.Bytes()
+	tb, err := timeEncoder.Bytes()
 	if err != nil {
 		return nil, err
 	}
 	// Encoded float values
-	vb, err := venc.Bytes()
+	vb, err := floatEncoder.Bytes()
 	if err != nil {
 		return nil, err
 	}

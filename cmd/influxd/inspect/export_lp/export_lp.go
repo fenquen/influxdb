@@ -357,7 +357,7 @@ func exportWAL(walFile string, filters *exportFilters, out io.Writer, log *zap.L
 			onDelete()
 			continue
 		case *tsm1.WriteWALEntry:
-			for key, values := range t.Values {
+			for key, values := range t.MeasurementTagsFieldKey2FieldValues {
 				key, field := tsm1.SeriesAndFieldFromCompositeKey([]byte(key))
 				if filterMeasurement {
 					measurement, _ := models.ParseKey(key)

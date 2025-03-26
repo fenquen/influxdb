@@ -249,7 +249,7 @@ func (pointsWriter *PointsWriter) Map2Shards(writePointsRequest *WritePointsRequ
 
 	shardMapping := NewShardMapping(len(writePointsRequest.Points))
 	for _, point := range writePointsRequest.Points {
-		shardGroupInfo := shardGroupInfoList.ShardGroupAt(point.Time()) // 定位到shardGroupInfo 使用的是time
+		shardGroupInfo := shardGroupInfoList.ShardGroupAt(point.Time()) // 定位到shardGroupInfo使用的是点位的time
 		if shardGroupInfo == nil {
 			// We didn't create a shard group because the point was outside the
 			// scope of the RP.
@@ -257,7 +257,7 @@ func (pointsWriter *PointsWriter) Map2Shards(writePointsRequest *WritePointsRequ
 			continue
 		}
 
-		shardInfo := shardGroupInfo.ShardFor(point) // 定位到shard 使用的是point的key(其实是measurement加上tags)
+		shardInfo := shardGroupInfo.ShardFor(point) // 定位到shard使用的是点位的key(其实是measurement加上tags)
 		shardMapping.MapPoint(&shardInfo, point)
 	}
 

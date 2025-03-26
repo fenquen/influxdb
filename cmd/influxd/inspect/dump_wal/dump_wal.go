@@ -86,14 +86,14 @@ func (dumpWAL *dumpWALCommand) processWALFile(cmd *cobra.Command, path string) e
 				cmd.Printf("[write] sz=%d\n", entry.MarshalSize())
 			}
 
-			keys := make([]string, 0, len(entry.Values))
-			for k := range entry.Values {
+			keys := make([]string, 0, len(entry.MeasurementTagsFieldKey2FieldValues))
+			for k := range entry.MeasurementTagsFieldKey2FieldValues {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 
 			for _, k := range keys {
-				for _, v := range entry.Values[k] {
+				for _, v := range entry.MeasurementTagsFieldKey2FieldValues[k] {
 					t := v.UnixNano()
 
 					if dumpWAL.findDuplicates {

@@ -119,7 +119,7 @@ type Point interface {
 	// HashID returns a non-cryptographic checksum of the point's key.
 	HashID() uint64
 
-	// Key returns the key (measurement joined with tags) of the point.
+	// returns the key (measurement joined with tags) of the point.
 	Key() []byte
 
 	// String returns a string representation of the point. If there is a
@@ -188,7 +188,7 @@ type FieldIterator interface {
 	// Next indicates whether there any fields remaining.
 	Next() bool
 
-	// FieldKey returns the key of the current field.
+	// returns the key of the current field.
 	FieldKey() []byte
 
 	// Type returns the FieldType of the current field.

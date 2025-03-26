@@ -43,7 +43,7 @@ func MarshalTags(tags map[string]string) []byte {
 	return b
 }
 
-// MakeTagsKey converts a tag set to bytes for use as a lookup key.
+// MakeTagsKey convert a tag set to bytes for use as a lookup key.
 func MakeTagsKey(keys []string, tags models.Tags) []byte {
 	// precondition: keys is sorted
 	// precondition: models.Tags is sorted
