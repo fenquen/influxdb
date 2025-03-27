@@ -316,8 +316,8 @@ func (wal *WAL) scheduleSync() {
 	go func() {
 		var timerCh <-chan time.Time
 
-		// time.NewTicker requires a > 0 delay, since 0 indicates no delay, use a closed
-		// channel which will always be ready to read from.
+		// 如果是0的话当写入wal文件后立即调用fsync的
+		// 如不是那么需要的话可以写大点这样性能压力低 会将这段时间内的写入合并处理的
 		if wal.syncDelay == 0 {
 			// Create a RW chan and close it
 			timerChrw := make(chan time.Time)

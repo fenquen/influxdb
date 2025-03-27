@@ -56,7 +56,7 @@ func (a Values) assertOrdered() {
 	}
 }
 
-// returns a new slice with any values that have the same timestamp removed.
+// Deduplicate returns a new slice with any values that have the same timestamp removed.
 // The Value that appears last in the slice is the one that is kept.  The returned
 // Values are sorted if necessary.
 func (a Values) Deduplicate() Values {

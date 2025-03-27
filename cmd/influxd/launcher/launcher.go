@@ -202,7 +202,7 @@ func (launcher *Launcher) Done() <-chan struct{} {
 	return launcher.doneChan
 }
 
-func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error) {
+func (launcher *Launcher) run(ctx context.Context, influxdOpts *InfluxdOpts) (err error) {
 	span, ctx := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
@@ -214,19 +214,19 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 		zap.String("version", info.Version),
 		zap.String("commit", info.Commit),
 		zap.String("build_date", info.Date),
-		zap.String("log_level", opts.LogLevel.String()),
+		zap.String("log_level", influxdOpts.LogLevel.String()),
 	)
-	launcher.initTracing(opts)
+	launcher.initTracing(influxdOpts)
 
-	if p := opts.Viper.ConfigFileUsed(); p != "" {
+	if p := influxdOpts.Viper.ConfigFileUsed(); p != "" {
 		launcher.log.Debug("loaded config file", zap.String("path", p))
 	}
 
-	if opts.NatsPort != 0 {
+	if influxdOpts.NatsPort != 0 {
 		launcher.log.Warn("nats-port argument is deprecated and unused")
 	}
 
-	if opts.NatsMaxPayloadBytes != 0 {
+	if influxdOpts.NatsMaxPayloadBytes != 0 {
 		launcher.log.Warn("nats-max-payload-bytes argument is deprecated and unused")
 	}
 
@@ -236,14 +236,14 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 	// for use in modifying behavior there.
 	if launcher.flagger == nil {
 		launcher.flagger = feature.DefaultFlagger()
-		if len(opts.FeatureFlags) > 0 {
-			f, err := overrideflagger.Make(opts.FeatureFlags, feature.ByKey)
+		if len(influxdOpts.FeatureFlags) > 0 {
+			f, err := overrideflagger.Make(influxdOpts.FeatureFlags, feature.ByKey)
 			if err != nil {
 				launcher.log.Error("Failed to configure feature flag overrides",
-					zap.Error(err), zap.Any("overrides", opts.FeatureFlags))
+					zap.Error(err), zap.Any("overrides", influxdOpts.FeatureFlags))
 				return err
 			}
-			launcher.log.Info("Running with feature flag overrides", zap.Any("overrides", opts.FeatureFlags))
+			launcher.log.Info("Running with feature flag overrides", zap.Any("overrides", influxdOpts.FeatureFlags))
 			launcher.flagger = f
 		}
 	}
@@ -252,7 +252,7 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 	launcher.reg.MustRegister(collectors.NewGoCollector())
 
 	// Open KV and SQL stores.
-	procID, err := launcher.openMetaStores(ctx, opts)
+	procID, err := launcher.openMetaStores(ctx, influxdOpts)
 	if err != nil {
 		return err
 	}
@@ -297,20 +297,20 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 
 	var secretSvc platform.SecretService = secret.NewMetricService(launcher.reg, secret.NewLogger(launcher.log.With(zap.String("service", "secret")), secret.NewService(secretStore)))
 
-	switch opts.SecretStore {
+	switch influxdOpts.SecretStore {
 	case "bolt":
 		// If it is bolt, then we already set it above.
 	case "vault":
 		// The vault secret service is configured using the standard vault environment variables.
 		// https://www.vaultproject.io/docs/commands/index.html#environment-variables
-		svc, err := vault.NewSecretService(vault.WithConfig(opts.VaultConfig))
+		svc, err := vault.NewSecretService(vault.WithConfig(influxdOpts.VaultConfig))
 		if err != nil {
 			launcher.log.Error("Failed initializing vault secret service", zap.Error(err))
 			return err
 		}
 		secretSvc = svc
 	default:
-		err := fmt.Errorf("unknown secret service %q, expected \"bolt\" or \"vault\"", opts.SecretStore)
+		err := fmt.Errorf("unknown secret service %q, expected \"bolt\" or \"vault\"", influxdOpts.SecretStore)
 		launcher.log.Error("Failed setting secret service", zap.Error(err))
 		return err
 	}
@@ -321,24 +321,24 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 		return err
 	}
 
-	if opts.Testing {
+	if influxdOpts.Testing {
 		// the testing engine will write/read into a temporary directory
 		engine := NewTemporaryEngine(
-			opts.StorageConfig,
+			influxdOpts.StorageConfig,
 			storage.WithMetaClient(metaClient),
 		)
 		launcher.flushers = append(launcher.flushers, engine)
 		launcher.engine = engine
 	} else {
 		// check for 2.x data / state from a prior 2.x
-		if err := checkForPriorVersion(ctx, launcher.log, opts.BoltPath, opts.EnginePath, ts.BucketService, metaClient); err != nil {
+		if err := checkForPriorVersion(ctx, launcher.log, influxdOpts.BoltPath, influxdOpts.EnginePath, ts.BucketService, metaClient); err != nil {
 			os.Exit(1)
 		}
 
 		launcher.engine = storage.NewEngine(
-			opts.EnginePath,
-			opts.StorageConfig,
-			storage.WithMetricsDisabled(opts.MetricsDisabled),
+			influxdOpts.EnginePath,
+			influxdOpts.StorageConfig,
+			storage.WithMetricsDisabled(influxdOpts.MetricsDisabled),
 			storage.WithMetaClient(metaClient),
 		)
 	}
@@ -367,7 +367,7 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 	remotesServer := remotesTransport.NewInstrumentedRemotesHandler(
 		launcher.log.With(zap.String("handler", "remotes")), launcher.reg, launcher.kvStore, remotesSvc)
 
-	replicationSvc, replicationsMetrics := replications.NewService(launcher.sqlStore, ts, pointsWriter, launcher.log.With(zap.String("service", "replications")), opts.EnginePath, opts.InstanceID)
+	replicationSvc, replicationsMetrics := replications.NewService(launcher.sqlStore, ts, pointsWriter, launcher.log.With(zap.String("service", "replications")), influxdOpts.EnginePath, influxdOpts.InstanceID)
 	replicationServer := replicationTransport.NewInstrumentedReplicationHandler(
 		launcher.log.With(zap.String("handler", "replications")), launcher.reg, launcher.kvStore, replicationSvc)
 	ts.BucketService = replications.NewBucketService(
@@ -392,7 +392,7 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 	// When --hardening-enabled, use an HTTP IP validator that restricts
 	// flux and pkger HTTP requests to private addressess.
 	var urlValidator url.Validator
-	if opts.HardeningEnabled {
+	if influxdOpts.HardeningEnabled {
 		urlValidator = url.PrivateIPValidator{}
 	} else {
 		urlValidator = url.PassValidator{}
@@ -413,19 +413,19 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 	}
 
 	dependencyList := []flux.Dependency{deps}
-	if opts.Testing {
+	if influxdOpts.Testing {
 		dependencyList = append(dependencyList, executetest.NewDefaultTestFlagger())
 		dependencyList = append(dependencyList, testing.FrameworkConfig{})
 	}
 
 	launcher.queryController, err = control.New(control.Config{
-		ConcurrencyQuota:                opts.ConcurrencyQuota,
-		InitialMemoryBytesQuotaPerQuery: opts.InitialMemoryBytesQuotaPerQuery,
-		MemoryBytesQuotaPerQuery:        opts.MemoryBytesQuotaPerQuery,
-		MaxMemoryBytes:                  opts.MaxMemoryBytes,
-		QueueSize:                       opts.QueueSize,
+		ConcurrencyQuota:                influxdOpts.ConcurrencyQuota,
+		InitialMemoryBytesQuotaPerQuery: influxdOpts.InitialMemoryBytesQuotaPerQuery,
+		MemoryBytesQuotaPerQuery:        influxdOpts.MemoryBytesQuotaPerQuery,
+		MaxMemoryBytes:                  influxdOpts.MaxMemoryBytes,
+		QueueSize:                       influxdOpts.QueueSize,
 		ExecutorDependencies:            dependencyList,
-		FluxLogEnabled:                  opts.FluxLogEnabled,
+		FluxLogEnabled:                  influxdOpts.FluxLogEnabled,
 	}, launcher.log.With(zap.String("service", "storage-reads")))
 	if err != nil {
 		launcher.log.Error("Failed to create query controller", zap.Error(err))
@@ -470,7 +470,7 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 		schLogger := launcher.log.With(zap.String("service", "task-scheduler"))
 
 		var sch stoppingScheduler = &scheduler.NoopScheduler{}
-		if !opts.NoTasks {
+		if !influxdOpts.NoTasks {
 			var (
 				sm  *scheduler.SchedulerMetrics
 				err error
@@ -534,9 +534,9 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 	}
 
 	launcher.log.Info("Configuring InfluxQL statement executor (zeros indicate unlimited).",
-		zap.Int("max_select_point", opts.CoordinatorConfig.MaxSelectPointN),
-		zap.Int("max_select_series", opts.CoordinatorConfig.MaxSelectSeriesN),
-		zap.Int("max_select_buckets", opts.CoordinatorConfig.MaxSelectBucketsN))
+		zap.Int("max_select_point", influxdOpts.CoordinatorConfig.MaxSelectPointN),
+		zap.Int("max_select_series", influxdOpts.CoordinatorConfig.MaxSelectSeriesN),
+		zap.Int("max_select_buckets", influxdOpts.CoordinatorConfig.MaxSelectBucketsN))
 
 	qe := iqlquery.NewExecutor(launcher.log, cm)
 	se := &iqlcoordinator.StatementExecutor{
@@ -544,9 +544,9 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 		TSDBStore:         launcher.engine.TSDBStore(),
 		ShardMapper:       mapper,
 		DBRP:              dbrpSvc,
-		MaxSelectPointN:   opts.CoordinatorConfig.MaxSelectPointN,
-		MaxSelectSeriesN:  opts.CoordinatorConfig.MaxSelectSeriesN,
-		MaxSelectBucketsN: opts.CoordinatorConfig.MaxSelectBucketsN,
+		MaxSelectPointN:   influxdOpts.CoordinatorConfig.MaxSelectPointN,
+		MaxSelectSeriesN:  influxdOpts.CoordinatorConfig.MaxSelectSeriesN,
+		MaxSelectBucketsN: influxdOpts.CoordinatorConfig.MaxSelectBucketsN,
 	}
 	qe.StatementExecutor = se
 	qe.StatementNormalizer = se
@@ -601,7 +601,7 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 			ts.UserService,
 			ts.UserResourceMappingService,
 			authSvc,
-			session.WithSessionLength(time.Duration(opts.SessionLength)*time.Minute),
+			session.WithSessionLength(time.Duration(influxdOpts.SessionLength)*time.Minute),
 		)
 		sessionSvc = session.NewSessionMetrics(launcher.reg, sessionSvc)
 		sessionSvc = session.NewSessionLogger(launcher.log.With(zap.String("service", "session")), sessionSvc)
@@ -624,7 +624,7 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 
 	onboardingLogger := launcher.log.With(zap.String("handler", "onboard"))
 	onboardOpts := []tenant.OnboardServiceOptionFn{tenant.WithOnboardingLogger(onboardingLogger)}
-	if opts.TestingAlwaysAllowSetup {
+	if influxdOpts.TestingAlwaysAllowSetup {
 		onboardOpts = append(onboardOpts, tenant.WithAlwaysAllowInitialUser())
 	}
 
@@ -679,12 +679,12 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 
 	errorHandler := kithttp.NewErrorHandler(launcher.log.With(zap.String("handler", "error_logger")))
 	launcher.apibackend = &http.APIBackend{
-		AssetsPath:           opts.AssetsPath,
-		UIDisabled:           opts.UIDisabled,
+		AssetsPath:           influxdOpts.AssetsPath,
+		UIDisabled:           influxdOpts.UIDisabled,
 		HTTPErrorHandler:     errorHandler,
 		Logger:               launcher.log,
-		FluxLogEnabled:       opts.FluxLogEnabled,
-		SessionRenewDisabled: opts.SessionRenewDisabled,
+		FluxLogEnabled:       influxdOpts.FluxLogEnabled,
+		SessionRenewDisabled: influxdOpts.SessionRenewDisabled,
 		NewQueryService:      source.NewQueryService,
 		PointsWriter: &storage.LoggingPointsWriter{
 			Underlying:    pointsWriter,
@@ -884,7 +884,7 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 		),
 	)
 
-	configHandler, err := http.NewConfigHandler(launcher.log.With(zap.String("handler", "config")), opts.BindCliOpts())
+	configHandler, err := http.NewConfigHandler(launcher.log.With(zap.String("handler", "config")), influxdOpts.BindCliOpts())
 	if err != nil {
 		return err
 	}
@@ -916,22 +916,22 @@ func (launcher *Launcher) run(ctx context.Context, opts *InfluxdOpts) (err error
 		"platform",
 		http.WithLog(httpLogger),
 		http.WithAPIHandler(platformHandler),
-		http.WithPprofEnabled(!opts.ProfilingDisabled),
-		http.WithMetrics(launcher.reg, !opts.MetricsDisabled),
+		http.WithPprofEnabled(!influxdOpts.ProfilingDisabled),
+		http.WithMetrics(launcher.reg, !influxdOpts.MetricsDisabled),
 	)
 
-	if opts.LogLevel == zap.DebugLevel {
+	if influxdOpts.LogLevel == zap.DebugLevel {
 		httpHandler = http.LoggingMW(httpLogger)(httpHandler)
 	}
 	// If we are in testing mode we allow all data to be flushed and removed.
-	if opts.Testing {
+	if influxdOpts.Testing {
 		httpHandler = http.Debug(ctx, httpHandler, launcher.flushers, onboardSvc)
 	}
 
-	if !opts.ReportingDisabled {
+	if !influxdOpts.ReportingDisabled {
 		launcher.runReporter(ctx)
 	}
-	if err := launcher.runHTTP(opts, httpHandler, httpLogger); err != nil {
+	if err := launcher.runHTTP(influxdOpts, httpHandler, httpLogger); err != nil {
 		return err
 	}
 

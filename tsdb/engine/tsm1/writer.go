@@ -113,14 +113,14 @@ var (
 	// ErrMaxKeyLengthExceeded is returned when attempting to write a key that is too long.
 	ErrMaxKeyLengthExceeded = fmt.Errorf("max key length exceeded")
 
-	// ErrMaxBlocksExceeded is returned when attempting to write a block past the allowed number.
+	// returned when attempting to write a block past the allowed number.
 	ErrMaxBlocksExceeded = fmt.Errorf("max blocks exceeded")
 )
 
-// TSMWriter writes TSM formatted key and values.
+// write TSM formatted key and values.
 type TSMWriter interface {
-	// Write writes a new block for key containing and values.  Writes append
-	// blocks in the order that the Write function is called.  The caller is
+	// write a new block for key containing and values.  Writes append
+	// blocks in the order that the write function is called.  The caller is
 	// responsible for ensuring keys and blocks are sorted appropriately.
 	// Values are encoded as a full block.  The caller is responsible for
 	// ensuring a fixed number of values are encoded in each block as well as
@@ -128,14 +128,14 @@ type TSMWriter interface {
 	// used as the minimum and maximum values for the index entry.
 	Write(key []byte, values Values) error
 
-	// WriteBlock writes a new block for key containing the bytes in block.  WriteBlock appends
+	// write a new block for key containing the bytes in block.  WriteBlock appends
 	// blocks in the order that the WriteBlock function is called.  The caller is
 	// responsible for ensuring keys and blocks are sorted appropriately, and that the
 	// block and index information is correct for the block.  The minTime and maxTime
 	// timestamp values are used as the minimum and maximum values for the index entry.
-	WriteBlock(key []byte, minTime, maxTime int64, block []byte) error
+	WriteBlock(key []byte, minTime, maxTime int64, blockData []byte) error
 
-	// WriteIndex finishes the TSM write streams and writes the index.
+	// finishes the TSM write streams and writes the index
 	WriteIndex() error
 
 	// Flushes flushes all pending changes to the underlying file resources.
@@ -144,13 +144,13 @@ type TSMWriter interface {
 	// Close closes any underlying file resources.
 	Close() error
 
-	// Size returns the current size in bytes of the file.
+	// return the current size in bytes of the file.
 	Size() uint32
 
 	Remove() error
 }
 
-// IndexWriter writes a TSMIndex.
+// write TSMIndex
 type IndexWriter interface {
 	// Add records a new block entry for a key in the index.
 	Add(key []byte, blockType byte, minTime, maxTime int64, offset int64, size uint32)
@@ -235,15 +235,13 @@ func (e *IndexEntry) String() string {
 		time.Unix(0, e.MinTime).UTC(), time.Unix(0, e.MaxTime).UTC(), e.Offset, e.Size)
 }
 
-// NewIndexWriter returns a new IndexWriter.
 func NewIndexWriter() IndexWriter {
 	buf := bytes.NewBuffer(make([]byte, 0, 1024*1024))
-	return &directIndex{buf: buf, w: bufio.NewWriter(buf)}
+	return &directIndex{buf: buf, writer: bufio.NewWriter(buf)}
 }
 
-// NewIndexWriter returns a new IndexWriter.
-func NewDiskIndexWriter(f *os.File) IndexWriter {
-	return &directIndex{fd: f, w: bufio.NewWriterSize(f, 1024*1024)}
+func NewDiskIndexWriter(diskBufferFile *os.File) IndexWriter {
+	return &directIndex{diskBufferFile: diskBufferFile, writer: bufio.NewWriterSize(diskBufferFile, 1024*1024)}
 }
 
 type syncer interface {
@@ -251,39 +249,39 @@ type syncer interface {
 	Sync() error
 }
 
-// directIndex is a simple in-memory index implementation for a TSM file.  The full index
+// a simple in-memory index implementation for a TSM file.  The full index
 // must fit in memory.
 type directIndex struct {
 	keyCount int
 	size     uint32
 
 	// The bytes written count of when we last fsync'd
-	lastSync uint32
-	fd       *os.File
-	buf      *bytes.Buffer
+	lastSync       uint32
+	diskBufferFile *os.File
+	buf            *bytes.Buffer
 
 	f syncer
 
-	w *bufio.Writer
+	writer *bufio.Writer
 
 	key          []byte
 	indexEntries *indexEntries
 }
 
-func (d *directIndex) Add(key []byte, blockType byte, minTime, maxTime int64, offset int64, size uint32) {
+func (directIndex *directIndex) Add(key []byte, blockType byte, minTime, maxTime int64, offset int64, size uint32) {
 	// Is this the first block being added?
-	if len(d.key) == 0 {
+	if len(directIndex.key) == 0 {
 		// size of the key stored in the index
-		d.size += uint32(2 + len(key))
+		directIndex.size += uint32(2 + len(key))
 		// size of the count of entries stored in the index
-		d.size += indexCountSize
+		directIndex.size += indexCountSize
 
-		d.key = key
-		if d.indexEntries == nil {
-			d.indexEntries = &indexEntries{}
+		directIndex.key = key
+		if directIndex.indexEntries == nil {
+			directIndex.indexEntries = &indexEntries{}
 		}
-		d.indexEntries.Type = blockType
-		d.indexEntries.entries = append(d.indexEntries.entries, IndexEntry{
+		directIndex.indexEntries.Type = blockType
+		directIndex.indexEntries.entries = append(directIndex.indexEntries.entries, IndexEntry{
 			MinTime: minTime,
 			MaxTime: maxTime,
 			Offset:  offset,
@@ -291,16 +289,16 @@ func (d *directIndex) Add(key []byte, blockType byte, minTime, maxTime int64, of
 		})
 
 		// size of the encoded index entry
-		d.size += indexEntrySize
-		d.keyCount++
+		directIndex.size += indexEntrySize
+		directIndex.keyCount++
 		return
 	}
 
 	// See if were still adding to the same series key.
-	cmp := bytes.Compare(d.key, key)
+	cmp := bytes.Compare(directIndex.key, key)
 	if cmp == 0 {
 		// The last block is still this key
-		d.indexEntries.entries = append(d.indexEntries.entries, IndexEntry{
+		directIndex.indexEntries.entries = append(directIndex.indexEntries.entries, IndexEntry{
 			MinTime: minTime,
 			MaxTime: maxTime,
 			Offset:  offset,
@@ -308,21 +306,21 @@ func (d *directIndex) Add(key []byte, blockType byte, minTime, maxTime int64, of
 		})
 
 		// size of the encoded index entry
-		d.size += indexEntrySize
+		directIndex.size += indexEntrySize
 
 	} else if cmp < 0 {
-		d.flush(d.w)
+		directIndex.flush(directIndex.writer)
 		// We have a new key that is greater than the last one so we need to add
 		// a new index block section.
 
 		// size of the key stored in the index
-		d.size += uint32(2 + len(key))
+		directIndex.size += uint32(2 + len(key))
 		// size of the count of entries stored in the index
-		d.size += indexCountSize
+		directIndex.size += indexCountSize
 
-		d.key = key
-		d.indexEntries.Type = blockType
-		d.indexEntries.entries = append(d.indexEntries.entries, IndexEntry{
+		directIndex.key = key
+		directIndex.indexEntries.Type = blockType
+		directIndex.indexEntries.entries = append(directIndex.indexEntries.entries, IndexEntry{
 			MinTime: minTime,
 			MaxTime: maxTime,
 			Offset:  offset,
@@ -330,32 +328,32 @@ func (d *directIndex) Add(key []byte, blockType byte, minTime, maxTime int64, of
 		})
 
 		// size of the encoded index entry
-		d.size += indexEntrySize
-		d.keyCount++
+		directIndex.size += indexEntrySize
+		directIndex.keyCount++
 	} else {
 		// Keys can't be added out of order.
-		panic(fmt.Sprintf("keys must be added in sorted order: %s < %s", string(key), string(d.key)))
+		panic(fmt.Sprintf("keys must be added in sorted order: %s < %s", string(key), string(directIndex.key)))
 	}
 }
 
-func (d *directIndex) entries(key []byte) []IndexEntry {
-	if len(d.key) == 0 {
+func (directIndex *directIndex) entries(key []byte) []IndexEntry {
+	if len(directIndex.key) == 0 {
 		return nil
 	}
 
-	if bytes.Equal(d.key, key) {
-		return d.indexEntries.entries
+	if bytes.Equal(directIndex.key, key) {
+		return directIndex.indexEntries.entries
 	}
 
 	return nil
 }
 
-func (d *directIndex) Entries(key []byte) []IndexEntry {
-	return d.entries(key)
+func (directIndex *directIndex) Entries(key []byte) []IndexEntry {
+	return directIndex.entries(key)
 }
 
-func (d *directIndex) Entry(key []byte, t int64) *IndexEntry {
-	entries := d.entries(key)
+func (directIndex *directIndex) Entry(key []byte, t int64) *IndexEntry {
+	entries := directIndex.entries(key)
 	for _, entry := range entries {
 		if entry.Contains(t) {
 			return &entry
@@ -364,8 +362,8 @@ func (d *directIndex) Entry(key []byte, t int64) *IndexEntry {
 	return nil
 }
 
-func (d *directIndex) KeyCount() int {
-	return d.keyCount
+func (directIndex *directIndex) KeyCount() int {
+	return directIndex.keyCount
 }
 
 // copyBuffer is the actual implementation of Copy and CopyBuffer.
@@ -410,27 +408,27 @@ func copyBuffer(f syncer, dst io.Writer, src io.Reader, buf []byte) (written int
 	return written, err
 }
 
-func (d *directIndex) WriteTo(w io.Writer) (int64, error) {
-	if _, err := d.flush(d.w); err != nil {
+func (directIndex *directIndex) WriteTo(w io.Writer) (int64, error) {
+	if _, err := directIndex.flush(directIndex.writer); err != nil {
 		return 0, err
 	}
 
-	if err := d.w.Flush(); err != nil {
+	if err := directIndex.writer.Flush(); err != nil {
 		return 0, err
 	}
 
-	if d.fd == nil {
-		return copyBuffer(d.f, w, d.buf, nil)
+	if directIndex.diskBufferFile == nil {
+		return copyBuffer(directIndex.f, w, directIndex.buf, nil)
 	}
 
-	if _, err := d.fd.Seek(0, io.SeekStart); err != nil {
+	if _, err := directIndex.diskBufferFile.Seek(0, io.SeekStart); err != nil {
 		return 0, err
 	}
 
-	return io.Copy(w, bufio.NewReaderSize(d.fd, 1024*1024))
+	return io.Copy(w, bufio.NewReaderSize(directIndex.diskBufferFile, 1024*1024))
 }
 
-func (d *directIndex) flush(w io.Writer) (int64, error) {
+func (directIndex *directIndex) flush(w io.Writer) (int64, error) {
 	var (
 		n   int
 		err error
@@ -438,12 +436,12 @@ func (d *directIndex) flush(w io.Writer) (int64, error) {
 		N   int64
 	)
 
-	if len(d.key) == 0 {
+	if len(directIndex.key) == 0 {
 		return 0, nil
 	}
 	// For each key, individual entries are sorted by time
-	key := d.key
-	entries := d.indexEntries
+	key := directIndex.key
+	entries := directIndex.indexEntries
 
 	if entries.Len() > maxIndexEntries {
 		return N, fmt.Errorf("key '%s' exceeds max index entries: %d > %d", key, entries.Len(), maxIndexEntries)
@@ -481,115 +479,115 @@ func (d *directIndex) flush(w io.Writer) (int64, error) {
 	}
 	N += n64
 
-	d.key = nil
-	d.indexEntries.Type = 0
-	d.indexEntries.entries = d.indexEntries.entries[:0]
+	directIndex.key = nil
+	directIndex.indexEntries.Type = 0
+	directIndex.indexEntries.entries = directIndex.indexEntries.entries[:0]
 
 	// If this is a disk based index and we've written more than the fsync threshold,
 	// fsync the data to avoid long pauses later on.
-	if d.fd != nil && d.size-d.lastSync > fsyncEvery {
-		if err := d.fd.Sync(); err != nil {
+	if directIndex.diskBufferFile != nil && directIndex.size-directIndex.lastSync > fsyncEvery {
+		if err := directIndex.diskBufferFile.Sync(); err != nil {
 			return N, err
 		}
-		d.lastSync = d.size
+		directIndex.lastSync = directIndex.size
 	}
 
 	return N, nil
 
 }
 
-func (d *directIndex) MarshalBinary() ([]byte, error) {
+func (directIndex *directIndex) MarshalBinary() ([]byte, error) {
 	var b bytes.Buffer
-	if _, err := d.WriteTo(&b); err != nil {
+	if _, err := directIndex.WriteTo(&b); err != nil {
 		return nil, err
 	}
 	return b.Bytes(), nil
 }
 
-func (d *directIndex) Size() uint32 {
-	return d.size
+func (directIndex *directIndex) Size() uint32 {
+	return directIndex.size
 }
 
-func (d *directIndex) Close() error {
+func (directIndex *directIndex) Close() error {
 	// Flush anything remaining in the index
-	if err := d.w.Flush(); err != nil {
+	if err := directIndex.writer.Flush(); err != nil {
 		return err
 	}
 
-	if d.fd == nil {
+	if directIndex.diskBufferFile == nil {
 		return nil
 	}
 
-	if err := d.fd.Close(); err != nil {
+	if err := directIndex.diskBufferFile.Close(); err != nil {
 		return err
 	}
-	return os.Remove(d.fd.Name())
+	return os.Remove(directIndex.diskBufferFile.Name())
 }
 
 // Remove removes the index from any temporary storage
-func (d *directIndex) Remove() error {
-	if d.fd == nil {
+func (directIndex *directIndex) Remove() error {
+	if directIndex.diskBufferFile == nil {
 		return nil
 	}
 
 	// Close the file handle to prevent leaking.  We ignore the error because
 	// we just want to cleanup and remove the file.
-	_ = d.fd.Close()
+	_ = directIndex.diskBufferFile.Close()
 
-	return os.Remove(d.fd.Name())
+	return os.Remove(directIndex.diskBufferFile.Name())
 }
 
-// tsmWriter writes keys and values in the TSM format
+// writes keys and values in the TSM format
 type tsmWriter struct {
-	wrapped io.Writer
-	w       *bufio.Writer
-	index   IndexWriter
-	n       int64
+	underlyingWriter io.Writer // 通常 newTsmFile
+	bufWriter        *bufio.Writer
+	indexWriter      IndexWriter
+	currentPos       int64
 
 	// The bytes written count of when we last fsync'd
-	lastSync int64
+	lastSyncPos int64
 }
 
-// NewTSMWriter returns a new TSMWriter writing to w.
-func NewTSMWriter(w io.Writer) (TSMWriter, error) {
-	index := NewIndexWriter()
-	return &tsmWriter{wrapped: w, w: bufio.NewWriterSize(w, 1024*1024), index: index}, nil
+// return a new TSMWriter writing to underlying writer
+func NewTSMWriter(writer io.Writer) (TSMWriter, error) {
+	indexWriter := NewIndexWriter()
+	return &tsmWriter{underlyingWriter: writer, bufWriter: bufio.NewWriterSize(writer, 1024*1024), indexWriter: indexWriter}, nil
 }
 
-// NewTSMWriterWithDiskBuffer returns a new TSMWriter writing to w and will use a disk
-// based buffer for the TSM index if possible.
-func NewTSMWriterWithDiskBuffer(w io.Writer) (TSMWriter, error) {
-	var index IndexWriter
+// a new TSMWriter writing to underlying writer and will use a disk
+// based buffer for the TSM index if possible
+func NewTSMWriterWithDiskBuffer(writer io.Writer) (TSMWriter, error) {
+	var indexWriter IndexWriter
 	// Make sure is a File so we can write the temp index alongside it.
-	if fw, ok := w.(syncer); ok {
-		f, err := os.OpenFile(strings.TrimSuffix(fw.Name(), ".tsm.tmp")+".idx.tmp", os.O_CREATE|os.O_RDWR|os.O_EXCL, 0666)
+	if fw, ok := writer.(syncer); ok {
+		diskBufferFile, err := os.OpenFile(strings.TrimSuffix(fw.Name(), ".tsm.tmp")+".idx.tmp", os.O_CREATE|os.O_RDWR|os.O_EXCL, 0666)
 		if err != nil {
 			return nil, err
 		}
-		index = NewDiskIndexWriter(f)
+		indexWriter = NewDiskIndexWriter(diskBufferFile)
 	} else {
-		// w is not a file, just use an inmem index
-		index = NewIndexWriter()
+		// writer is not a file, just use an in memory index
+		indexWriter = NewIndexWriter()
 	}
 
-	return &tsmWriter{wrapped: w, w: bufio.NewWriterSize(w, 1024*1024), index: index}, nil
+	return &tsmWriter{underlyingWriter: writer, bufWriter: bufio.NewWriterSize(writer, 1024*1024), indexWriter: indexWriter}, nil
 }
 
-func (t *tsmWriter) writeHeader() error {
+func (tsmWriter *tsmWriter) writeHeader() error {
 	var buf [5]byte
 	binary.BigEndian.PutUint32(buf[0:4], MagicNumber)
 	buf[4] = Version
 
-	n, err := t.w.Write(buf[:])
+	n, err := tsmWriter.bufWriter.Write(buf[:])
 	if err != nil {
 		return err
 	}
-	t.n = int64(n)
+	tsmWriter.currentPos = int64(n)
 	return nil
 }
 
 // Write writes a new block containing key and values.
-func (t *tsmWriter) Write(key []byte, values Values) error {
+func (tsmWriter *tsmWriter) Write(key []byte, values Values) error {
 	if len(key) > maxKeyLength {
 		return ErrMaxKeyLengthExceeded
 	}
@@ -600,8 +598,8 @@ func (t *tsmWriter) Write(key []byte, values Values) error {
 	}
 
 	// Write header only after we have some data to write.
-	if t.n == 0 {
-		if err := t.writeHeader(); err != nil {
+	if tsmWriter.currentPos == 0 {
+		if err := tsmWriter.writeHeader(); err != nil {
 			return err
 		}
 	}
@@ -619,107 +617,107 @@ func (t *tsmWriter) Write(key []byte, values Values) error {
 	var checksum [crc32.Size]byte
 	binary.BigEndian.PutUint32(checksum[:], crc32.ChecksumIEEE(block))
 
-	_, err = t.w.Write(checksum[:])
+	_, err = tsmWriter.bufWriter.Write(checksum[:])
 	if err != nil {
 		return err
 	}
 
-	n, err := t.w.Write(block)
+	n, err := tsmWriter.bufWriter.Write(block)
 	if err != nil {
 		return err
 	}
 	n += len(checksum)
 
 	// Record this block in index
-	t.index.Add(key, blockType, values[0].UnixNano(), values[len(values)-1].UnixNano(), t.n, uint32(n))
+	tsmWriter.indexWriter.Add(key, blockType, values[0].UnixNano(), values[len(values)-1].UnixNano(), tsmWriter.currentPos, uint32(n))
 
 	// Increment file position pointer
-	t.n += int64(n)
+	tsmWriter.currentPos += int64(n)
 
-	if len(t.index.Entries(key)) >= maxIndexEntries {
+	if len(tsmWriter.indexWriter.Entries(key)) >= maxIndexEntries {
 		return ErrMaxBlocksExceeded
 	}
 
 	return nil
 }
 
-// WriteBlock writes block for the given key and time range to the TSM file.  If the write
+// write block for the given key and time range to the TSM file.  If the write
 // exceeds max entries for a given key, ErrMaxBlocksExceeded is returned.  This indicates
 // that the index is now full for this key and no future writes to this key will succeed.
-func (t *tsmWriter) WriteBlock(key []byte, minTime, maxTime int64, block []byte) error {
+func (tsmWriter *tsmWriter) WriteBlock(key []byte, minTime, maxTime int64, blockData []byte) error {
 	if len(key) > maxKeyLength {
 		return ErrMaxKeyLengthExceeded
 	}
 
 	// Nothing to write
-	if len(block) == 0 {
+	if len(blockData) == 0 {
 		return nil
 	}
 
-	blockType, err := BlockType(block)
+	blockType, err := BlockType(blockData)
 	if err != nil {
 		return err
 	}
 
 	// Write header only after we have some data to write.
-	if t.n == 0 {
-		if err := t.writeHeader(); err != nil {
+	if tsmWriter.currentPos == 0 {
+		if err := tsmWriter.writeHeader(); err != nil {
 			return err
 		}
 	}
 
 	var checksum [crc32.Size]byte
-	binary.BigEndian.PutUint32(checksum[:], crc32.ChecksumIEEE(block))
+	binary.BigEndian.PutUint32(checksum[:], crc32.ChecksumIEEE(blockData))
 
-	_, err = t.w.Write(checksum[:])
+	_, err = tsmWriter.bufWriter.Write(checksum[:])
 	if err != nil {
 		return err
 	}
 
-	n, err := t.w.Write(block)
+	n, err := tsmWriter.bufWriter.Write(blockData)
 	if err != nil {
 		return err
 	}
 	n += len(checksum)
 
 	// Record this block in index
-	t.index.Add(key, blockType, minTime, maxTime, t.n, uint32(n))
+	tsmWriter.indexWriter.Add(key, blockType, minTime, maxTime, tsmWriter.currentPos, uint32(n))
 
 	// Increment file position pointer (checksum + block len)
-	t.n += int64(n)
+	tsmWriter.currentPos += int64(n)
 
 	// fsync the file periodically to avoid long pauses with very big files.
-	if t.n-t.lastSync > fsyncEvery {
-		if err := t.sync(); err != nil {
+	if tsmWriter.currentPos-tsmWriter.lastSyncPos > fsyncEvery {
+		if err := tsmWriter.sync(); err != nil {
 			return err
 		}
-		t.lastSync = t.n
+		tsmWriter.lastSyncPos = tsmWriter.currentPos
 	}
 
-	if len(t.index.Entries(key)) >= maxIndexEntries {
+	if len(tsmWriter.indexWriter.Entries(key)) >= maxIndexEntries {
 		return ErrMaxBlocksExceeded
 	}
 
 	return nil
 }
 
-// WriteIndex writes the index section of the file.  If there are no index entries to write,
-// this returns ErrNoValues.
-func (t *tsmWriter) WriteIndex() error {
-	indexPos := t.n
+// write the index section of the tsm file.  If there are no index entries to write,
+// this returns ErrNoValues
+func (tsmWriter *tsmWriter) WriteIndex() error {
+	indexPos := tsmWriter.currentPos
 
-	if t.index.KeyCount() == 0 {
+	if tsmWriter.indexWriter.KeyCount() == 0 {
 		return ErrNoValues
 	}
 
 	// Set the destination file on the index so we can periodically
 	// fsync while writing the index.
-	if f, ok := t.wrapped.(syncer); ok {
-		t.index.(*directIndex).f = f
+	if f, ok := tsmWriter.underlyingWriter.(syncer); ok {
+		tsmWriter.indexWriter.(*directIndex).f = f
 	}
 
 	// Write the index
-	if _, err := t.index.WriteTo(t.w); err != nil {
+	if _, err := tsmWriter.indexWriter.WriteTo(tsmWriter.bufWriter); err != nil {
 		return err
 	}
 
@@ -727,19 +725,19 @@ func (t *tsmWriter) WriteIndex() error {
 	binary.BigEndian.PutUint64(buf[:], uint64(indexPos))
 
 	// Write the index index position
-	_, err := t.w.Write(buf[:])
+	_, err := tsmWriter.bufWriter.Write(buf[:])
 	return err
 }
 
-func (t *tsmWriter) Flush() error {
-	if err := t.w.Flush(); err != nil {
+func (tsmWriter *tsmWriter) Flush() error {
+	if err := tsmWriter.bufWriter.Flush(); err != nil {
 		return err
 	}
 
-	return t.sync()
+	return tsmWriter.sync()
 }
 
-func (t *tsmWriter) sync() error {
+func (tsmWriter *tsmWriter) sync() error {
 	// sync is a minimal interface to make sure we can sync the wrapped
 	// value. we use a minimal interface to be as robust as possible for
 	// syncing these files.
@@ -747,7 +745,7 @@ func (t *tsmWriter) sync() error {
 		Sync() error
 	}
 
-	if f, ok := t.wrapped.(sync); ok {
+	if f, ok := tsmWriter.underlyingWriter.(sync); ok {
 		if err := f.Sync(); err != nil {
 			return err
 		}
@@ -755,24 +753,24 @@ func (t *tsmWriter) sync() error {
 	return nil
 }
 
-func (t *tsmWriter) Close() error {
-	if err := t.Flush(); err != nil {
+func (tsmWriter *tsmWriter) Close() error {
+	if err := tsmWriter.Flush(); err != nil {
 		return err
 	}
 
-	if err := t.index.Close(); err != nil {
+	if err := tsmWriter.indexWriter.Close(); err != nil {
 		return err
 	}
 
-	if c, ok := t.wrapped.(io.Closer); ok {
+	if c, ok := tsmWriter.underlyingWriter.(io.Closer); ok {
 		return c.Close()
 	}
 	return nil
 }
 
 // Remove removes any temporary storage used by the writer.
-func (t *tsmWriter) Remove() error {
-	if err := t.index.Remove(); err != nil {
+func (tsmWriter *tsmWriter) Remove() error {
+	if err := tsmWriter.indexWriter.Remove(); err != nil {
 		return err
 	}
 
@@ -783,7 +781,7 @@ func (t *tsmWriter) Remove() error {
 		Name() string
 	}
 
-	if f, ok := t.wrapped.(nameCloser); ok {
+	if f, ok := tsmWriter.underlyingWriter.(nameCloser); ok {
 		// Close the file handle to prevent leaking.  We ignore the error because
 		// we just want to cleanup and remove the file.
 		_ = f.Close()
@@ -793,8 +791,8 @@ func (t *tsmWriter) Remove() error {
 	return nil
 }
 
-func (t *tsmWriter) Size() uint32 {
-	return uint32(t.n) + t.index.Size()
+func (tsmWriter *tsmWriter) Size() uint32 {
+	return uint32(tsmWriter.currentPos) + tsmWriter.indexWriter.Size()
 }
 
 // verifyVersion verifies that the reader's bytes are a TSM byte

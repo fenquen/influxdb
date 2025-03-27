@@ -150,7 +150,7 @@ func (h *WriteHandler) handleWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parsed, err := points.NewParser(req.Precision).Parse(ctx, auth.OrgID, bucket.ID, req.Body)
+	parsed, err := points.NewParser(req.Precision).Parse(ctx, req.Body)
 	if err != nil {
 		h.HandleHTTPError(ctx, err, sw)
 		return

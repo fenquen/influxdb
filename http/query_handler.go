@@ -83,7 +83,7 @@ type FluxHandler struct {
 
 	Now                 func() time.Time
 	OrganizationService influxdb.OrganizationService
-	ProxyQueryService   query.ProxyQueryService
+	ProxyQueryService   query.ProxyQueryService // 其实是 ProxyQueryServiceAsyncBridge
 	FluxLanguageService fluxlang.FluxLanguageService
 
 	EventRecorder metric.EventRecorder
@@ -122,34 +122,34 @@ func NewFluxHandler(log *zap.Logger, b *FluxBackend) *FluxHandler {
 	return h
 }
 
-func (h *FluxHandler) handleQuery(w http.ResponseWriter, r *http.Request) {
+func (fluxHandler *FluxHandler) handleQuery(httpResp http.ResponseWriter, httpReq *http.Request) {
 	const op = "http/handlePostQuery"
-	span, r := tracing.ExtractFromHTTPRequest(r, "FluxHandler")
+	span, httpReq := tracing.ExtractFromHTTPRequest(httpReq, "FluxHandler")
 	defer span.Finish()
 
-	ctx := r.Context()
-	log := h.log.With(logger.TraceFields(ctx)...)
+	ctx := httpReq.Context()
+	log := fluxHandler.log.With(logger.TraceFields(ctx)...)
 	if id, _, found := tracing.InfoFromContext(ctx); found {
-		w.Header().Set(traceIDHeader, id)
+		httpResp.Header().Set(traceIDHeader, id)
 	}
 
 	// TODO(desa): I really don't like how we're recording the usage metrics here
 	// Ideally this will be moved when we solve https://github.com/influxdata/influxdb/issues/13403
 	var orgID platform.ID
 	var requestBytes int
-	sw := kithttp.NewStatusResponseWriter(w)
-	w = sw
+	sw := kithttp.NewStatusResponseWriter(httpResp)
+	httpResp = sw
 	defer func() {
-		h.EventRecorder.Record(ctx, metric.Event{
+		fluxHandler.EventRecorder.Record(ctx, metric.Event{
 			OrgID:         orgID,
-			Endpoint:      r.URL.Path, // This should be sufficient for the time being as it should only be single endpoint.
+			Endpoint:      httpReq.URL.Path, // This should be sufficient for the time being as it should only be single endpoint.
 			RequestBytes:  requestBytes,
 			ResponseBytes: sw.ResponseBytes(),
 			Status:        sw.Code(),
 		})
 	}()
 
-	a, err := pcontext.GetAuthorizer(ctx)
+	authorizer, err := pcontext.GetAuthorizer(ctx)
 	if err != nil {
 		err := &errors2.Error{
 			Code: errors2.EUnauthorized,
@@ -157,11 +157,11 @@ func (h *FluxHandler) handleQuery(w http.ResponseWriter, r *http.Request) {
 			Op:   op,
 			Err:  err,
 		}
-		h.HandleHTTPError(ctx, err, w)
+		fluxHandler.HandleHTTPError(ctx, err, httpResp)
 		return
 	}
 
-	req, n, err := decodeProxyQueryRequest(ctx, r, a, h.OrganizationService)
+	proxyRequest, n, err := decodeProxyQueryRequest(ctx, httpReq, authorizer, fluxHandler.OrganizationService)
 	if err != nil && err != influxdb.ErrAuthorizerNotSupported {
 		err := &errors2.Error{
 			Code: errors2.EInvalid,
@@ -169,37 +169,37 @@ func (h *FluxHandler) handleQuery(w http.ResponseWriter, r *http.Request) {
 			Op:   op,
 			Err:  err,
 		}
-		h.HandleHTTPError(ctx, err, w)
+		fluxHandler.HandleHTTPError(ctx, err, httpResp)
 		return
 	}
-	req.Request.Source = r.Header.Get("User-Agent")
-	orgID = req.Request.OrganizationID
+	proxyRequest.Request.Source = httpReq.Header.Get("User-Agent")
+	orgID = proxyRequest.Request.OrganizationID
 	requestBytes = n
 
 	// Transform the context into one with the request's authorization.
-	ctx = pcontext.SetAuthorizer(ctx, req.Request.Authorization)
-	if h.Flagger != nil {
-		ctx, _ = feature.Annotate(ctx, h.Flagger)
+	ctx = pcontext.SetAuthorizer(ctx, proxyRequest.Request.Authorization)
+	if fluxHandler.Flagger != nil {
+		ctx, _ = feature.Annotate(ctx, fluxHandler.Flagger)
 	}
 
-	hd, ok := req.Dialect.(HTTPDialect)
+	hd, ok := proxyRequest.Dialect.(HTTPDialect)
 	if !ok {
 		err := &errors2.Error{
 			Code: errors2.EInvalid,
-			Msg:  fmt.Sprintf("unsupported dialect over HTTP: %T", req.Dialect),
+			Msg:  fmt.Sprintf("unsupported dialect over HTTP: %T", proxyRequest.Dialect),
 			Op:   op,
 		}
-		h.HandleHTTPError(ctx, err, w)
+		fluxHandler.HandleHTTPError(ctx, err, httpResp)
 		return
 	}
-	hd.SetHeaders(w)
+	hd.SetHeaders(httpResp)
 
-	cw := iocounter.Writer{Writer: w}
-	stats, err := h.ProxyQueryService.Query(ctx, &cw, req)
+	countableWriter := iocounter.Writer{Writer: httpResp}
+	_, err = fluxHandler.ProxyQueryService.Query(ctx, &countableWriter, proxyRequest)
 	if err != nil {
-		if cw.Count() == 0 {
+		if countableWriter.Count() == 0 {
 			// Only record the error headers IFF nothing has been written to w.
-			h.HandleHTTPError(ctx, err, w)
+			fluxHandler.HandleHTTPError(ctx, err, httpResp)
 			return
 		}
 		_ = tracing.LogError(span, err)
@@ -210,21 +210,21 @@ func (h *FluxHandler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Detailed logging for flux queries if enabled
-	if h.FluxLogEnabled {
-		h.logFluxQuery(cw.Count(), stats, req.Request.Compiler, err)
-	}
+	/*if fluxHandler.FluxLogEnabled {
+		fluxHandler.logFluxQuery(cw.Count(), stats, req.Request.Compiler, err)
+	}*/
 
 }
 
-func (h *FluxHandler) logFluxQuery(n int64, stats flux.Statistics, compiler flux.Compiler, err error) {
+func (fluxHandler *FluxHandler) logFluxQuery(n int64, stats flux.Statistics, compiler flux.Compiler, err error) {
 	var q string
-	c, ok := compiler.(lang.FluxCompiler)
+	fluxCompiler, ok := compiler.(lang.FluxCompiler)
 	if !ok {
 		q = "unknown"
 	}
-	q = c.Query
+	q = fluxCompiler.Query
 
-	h.log.Info("Executed Flux query",
+	fluxHandler.log.Info("Executed Flux query",
 		zap.String("compiler_type", string(compiler.CompilerType())),
 		zap.Int64("response_size", n),
 		zap.String("query", q),
@@ -246,7 +246,7 @@ type postFluxASTResponse struct {
 }
 
 // postFluxAST returns a flux AST for provided flux string
-func (h *FluxHandler) postFluxAST(w http.ResponseWriter, r *http.Request) {
+func (fluxHandler *FluxHandler) postFluxAST(w http.ResponseWriter, r *http.Request) {
 	span, r := tracing.ExtractFromHTTPRequest(r, "FluxHandler")
 	defer span.Finish()
 
@@ -255,7 +255,7 @@ func (h *FluxHandler) postFluxAST(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
-		h.HandleHTTPError(ctx, &errors2.Error{
+		fluxHandler.HandleHTTPError(ctx, &errors2.Error{
 			Code: errors2.EInvalid,
 			Msg:  "invalid json",
 			Err:  err,
@@ -263,9 +263,9 @@ func (h *FluxHandler) postFluxAST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pkg, err := query.Parse(h.FluxLanguageService, request.Query)
+	pkg, err := query.Parse(fluxHandler.FluxLanguageService, request.Query)
 	if err != nil {
-		h.HandleHTTPError(ctx, &errors2.Error{
+		fluxHandler.HandleHTTPError(ctx, &errors2.Error{
 			Code: errors2.EInvalid,
 			Msg:  "invalid AST",
 			Err:  err,
@@ -278,13 +278,13 @@ func (h *FluxHandler) postFluxAST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := encodeResponse(ctx, w, http.StatusOK, res); err != nil {
-		logEncodingError(h.log, r, err)
+		logEncodingError(fluxHandler.log, r, err)
 		return
 	}
 }
 
 // postQueryAnalyze parses a query and returns any query errors.
-func (h *FluxHandler) postQueryAnalyze(w http.ResponseWriter, r *http.Request) {
+func (fluxHandler *FluxHandler) postQueryAnalyze(w http.ResponseWriter, r *http.Request) {
 	span, r := tracing.ExtractFromHTTPRequest(r, "FluxHandler")
 	defer span.Finish()
 
@@ -292,7 +292,7 @@ func (h *FluxHandler) postQueryAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	var req QueryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.HandleHTTPError(ctx, &errors2.Error{
+		fluxHandler.HandleHTTPError(ctx, &errors2.Error{
 			Code: errors2.EInvalid,
 			Msg:  "invalid json",
 			Err:  err,
@@ -300,13 +300,13 @@ func (h *FluxHandler) postQueryAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a, err := req.Analyze(h.FluxLanguageService)
+	a, err := req.Analyze(fluxHandler.FluxLanguageService)
 	if err != nil {
-		h.HandleHTTPError(ctx, err, w)
+		fluxHandler.HandleHTTPError(ctx, err, w)
 		return
 	}
 	if err := encodeResponse(ctx, w, http.StatusOK, a); err != nil {
-		logEncodingError(h.log, r, err)
+		logEncodingError(fluxHandler.log, r, err)
 		return
 	}
 }
@@ -326,18 +326,18 @@ type suggestionsResponse struct {
 }
 
 // getFluxSuggestions returns a list of available Flux functions for the Flux Builder
-func (h *FluxHandler) getFluxSuggestions(w http.ResponseWriter, r *http.Request) {
+func (fluxHandler *FluxHandler) getFluxSuggestions(w http.ResponseWriter, r *http.Request) {
 	span, r := tracing.ExtractFromHTTPRequest(r, "FluxHandler")
 	defer span.Finish()
 
 	ctx := r.Context()
-	completer := h.FluxLanguageService.Completer()
+	completer := fluxHandler.FluxLanguageService.Completer()
 	names := completer.FunctionNames()
 	var functions []suggestionResponse
 	for _, name := range names {
 		suggestion, err := completer.FunctionSuggestion(name)
 		if err != nil {
-			h.HandleHTTPError(ctx, err, w)
+			fluxHandler.HandleHTTPError(ctx, err, w)
 			return
 		}
 
@@ -358,35 +358,35 @@ func (h *FluxHandler) getFluxSuggestions(w http.ResponseWriter, r *http.Request)
 	res := suggestionsResponse{Functions: functions}
 
 	if err := encodeResponse(ctx, w, http.StatusOK, res); err != nil {
-		logEncodingError(h.log, r, err)
+		logEncodingError(fluxHandler.log, r, err)
 		return
 	}
 }
 
 // getFluxSuggestion returns the function parameters for the requested function
-func (h *FluxHandler) getFluxSuggestion(w http.ResponseWriter, r *http.Request) {
+func (fluxHandler *FluxHandler) getFluxSuggestion(w http.ResponseWriter, r *http.Request) {
 	span, r := tracing.ExtractFromHTTPRequest(r, "FluxHandler")
 	defer span.Finish()
 
 	ctx := r.Context()
 	name := httprouter.ParamsFromContext(ctx).ByName("name")
-	completer := h.FluxLanguageService.Completer()
+	completer := fluxHandler.FluxLanguageService.Completer()
 
 	suggestion, err := completer.FunctionSuggestion(name)
 	if err != nil {
-		h.HandleHTTPError(ctx, err, w)
+		fluxHandler.HandleHTTPError(ctx, err, w)
 		return
 	}
 
 	res := suggestionResponse{Name: name, Params: suggestion.Params}
 	if err := encodeResponse(ctx, w, http.StatusOK, res); err != nil {
-		logEncodingError(h.log, r, err)
+		logEncodingError(fluxHandler.log, r, err)
 		return
 	}
 }
 
 // PrometheusCollectors satisifies the prom.PrometheusCollector interface.
-func (h *FluxHandler) PrometheusCollectors() []prom.Collector {
+func (fluxHandler *FluxHandler) PrometheusCollectors() []prom.Collector {
 	// TODO: gather and return relevant metrics.
 	return nil
 }

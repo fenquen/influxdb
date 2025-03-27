@@ -35,14 +35,14 @@ func errInvalidFlags(flags []string, configFile string) error {
 // NewInfluxdCommand constructs the root of the influxd CLI, along with a `run` subcommand.
 // The `run` subcommand is set as the default to execute.
 func NewInfluxdCommand(ctx context.Context, v *viper.Viper) (*cobra.Command, error) {
-	o := NewOpts(v)
-	cliOpts := o.BindCliOpts()
+	influxdOpts := NewOpts(v)
+	cliOpts := influxdOpts.BindCliOpts()
 
 	prog := cli.Program{
 		Name: "influxd",
-		Run:  cmdRunE(ctx, o),
+		Run:  cmdRunE(ctx, influxdOpts),
 	}
-	cmd, err := cli.NewCommand(o.Viper, &prog)
+	cmd, err := cli.NewCommand(influxdOpts.Viper, &prog)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func NewInfluxdCommand(ctx context.Context, v *viper.Viper) (*cobra.Command, err
 	}
 	for _, c := range []*cobra.Command{cmd, runCmd} {
 		setCmdDescriptions(c)
-		if err := cli.BindOptions(o.Viper, c, cliOpts); err != nil {
+		if err := cli.BindOptions(influxdOpts.Viper, c, cliOpts); err != nil {
 			return nil, err
 		}
 	}
@@ -100,10 +100,10 @@ func setCmdDescriptions(cmd *cobra.Command) {
 `
 }
 
-func cmdRunE(ctx context.Context, o *InfluxdOpts) func() error {
+func cmdRunE(ctx context.Context, influxdOpts *InfluxdOpts) func() error {
 	return func() error {
 		// Set this as early as possible, since it affects global profiling rates.
-		pprof.SetGlobalProfiling(!o.ProfilingDisabled)
+		pprof.SetGlobalProfiling(!influxdOpts.ProfilingDisabled)
 
 		fluxinit.FluxInit()
 
@@ -112,7 +112,7 @@ func cmdRunE(ctx context.Context, o *InfluxdOpts) func() error {
 		// Create top level logger
 		logconf := &influxlogger.Config{
 			Format: "auto",
-			Level:  o.LogLevel,
+			Level:  influxdOpts.LogLevel,
 		}
 		logger, err := logconf.New(os.Stdout)
 		if err != nil {
@@ -121,7 +121,7 @@ func cmdRunE(ctx context.Context, o *InfluxdOpts) func() error {
 		launcher.log = logger
 
 		// Start the launcher and wait for it to exit on SIGINT or SIGTERM.
-		if err := launcher.run(signals.WithStandardSignals(ctx), o); err != nil {
+		if err := launcher.run(signals.WithStandardSignals(ctx), influxdOpts); err != nil {
 			return err
 		}
 		<-launcher.Done()

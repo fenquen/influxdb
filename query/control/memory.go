@@ -42,10 +42,10 @@ func (m *memoryManager) addUnusedMemoryBytes(amount int64) int64 {
 
 // createAllocator will construct an allocator and memory manager
 // for the given query.
-func (c *Controller) createAllocator(q *Query) {
+func (controller *Controller) createAllocator(q *Query) {
 	q.memoryManager = &queryMemoryManager{
-		memManager: c.memManager,
-		limit:      c.memManager.initialBytesQuotaPerQuery,
+		memManager: controller.memManager,
+		limit:      controller.memManager.initialBytesQuotaPerQuery,
 	}
 	q.alloc = &memory.ResourceAllocator{
 		// Use an anonymous function to ensure the value is copied.

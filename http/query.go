@@ -62,47 +62,47 @@ type QueryDialect struct {
 }
 
 // WithDefaults adds default values to the request.
-func (r QueryRequest) WithDefaults() QueryRequest {
-	if r.Type == "" {
-		r.Type = "flux"
+func (queryRequest QueryRequest) WithDefaults() QueryRequest {
+	if queryRequest.Type == "" {
+		queryRequest.Type = "flux"
 	}
-	if r.Dialect.Delimiter == "" {
-		r.Dialect.Delimiter = ","
+	if queryRequest.Dialect.Delimiter == "" {
+		queryRequest.Dialect.Delimiter = ","
 	}
-	if r.Dialect.DateTimeFormat == "" {
-		r.Dialect.DateTimeFormat = "RFC3339"
+	if queryRequest.Dialect.DateTimeFormat == "" {
+		queryRequest.Dialect.DateTimeFormat = "RFC3339"
 	}
-	if r.Dialect.Header == nil {
+	if queryRequest.Dialect.Header == nil {
 		header := true
-		r.Dialect.Header = &header
+		queryRequest.Dialect.Header = &header
 	}
-	return r
+	return queryRequest
 }
 
 // Validate checks the query request and returns an error if the request is invalid.
-func (r QueryRequest) Validate() error {
-	if r.Query == "" && r.AST == nil {
+func (queryRequest QueryRequest) Validate() error {
+	if queryRequest.Query == "" && queryRequest.AST == nil {
 		return errors.New(`request body requires either query or AST`)
 	}
 
-	if r.Type != "flux" {
-		return fmt.Errorf(`unknown query type: %s`, r.Type)
+	if queryRequest.Type != "flux" {
+		return fmt.Errorf(`unknown query type: %s`, queryRequest.Type)
 	}
 
-	if len(r.Dialect.CommentPrefix) > 1 {
+	if len(queryRequest.Dialect.CommentPrefix) > 1 {
 		return fmt.Errorf("invalid dialect comment prefix: must be length 0 or 1")
 	}
 
-	if len(r.Dialect.Delimiter) != 1 {
+	if len(queryRequest.Dialect.Delimiter) != 1 {
 		return fmt.Errorf("invalid dialect delimeter: must be length 1")
 	}
 
-	rune, size := utf8.DecodeRuneInString(r.Dialect.Delimiter)
+	rune, size := utf8.DecodeRuneInString(queryRequest.Dialect.Delimiter)
 	if rune == utf8.RuneError && size == 1 {
 		return fmt.Errorf("invalid dialect delimeter character")
 	}
 
-	for _, a := range r.Dialect.Annotations {
+	for _, a := range queryRequest.Dialect.Annotations {
 		switch a {
 		case "group", "datatype", "default":
 		default:
@@ -110,10 +110,10 @@ func (r QueryRequest) Validate() error {
 		}
 	}
 
-	switch r.Dialect.DateTimeFormat {
+	switch queryRequest.Dialect.DateTimeFormat {
 	case "RFC3339", "RFC3339Nano":
 	default:
-		return fmt.Errorf(`unknown dialect date time format: %s`, r.Dialect.DateTimeFormat)
+		return fmt.Errorf(`unknown dialect date time format: %s`, queryRequest.Dialect.DateTimeFormat)
 	}
 
 	return nil
@@ -133,18 +133,18 @@ type queryParseError struct {
 
 // Analyze attempts to parse the query request and returns any errors
 // encountered in a structured way.
-func (r QueryRequest) Analyze(l fluxlang.FluxLanguageService) (*QueryAnalysis, error) {
-	switch r.Type {
+func (queryRequest QueryRequest) Analyze(l fluxlang.FluxLanguageService) (*QueryAnalysis, error) {
+	switch queryRequest.Type {
 	case "flux":
-		return r.analyzeFluxQuery(l)
+		return queryRequest.analyzeFluxQuery(l)
 	}
 
-	return nil, fmt.Errorf("unknown query request type %s", r.Type)
+	return nil, fmt.Errorf("unknown query request type %s", queryRequest.Type)
 }
 
-func (r QueryRequest) analyzeFluxQuery(l fluxlang.FluxLanguageService) (*QueryAnalysis, error) {
+func (queryRequest QueryRequest) analyzeFluxQuery(l fluxlang.FluxLanguageService) (*QueryAnalysis, error) {
 	a := &QueryAnalysis{}
-	pkg, err := query.Parse(l, r.Query)
+	pkg, err := query.Parse(l, queryRequest.Query)
 	if pkg == nil {
 		return nil, err
 	}
@@ -168,51 +168,51 @@ func (r QueryRequest) analyzeFluxQuery(l fluxlang.FluxLanguageService) (*QueryAn
 }
 
 // ProxyRequest returns a request to proxy from the flux.
-func (r QueryRequest) ProxyRequest() (*query.ProxyRequest, error) {
-	return r.proxyRequest(time.Now)
+func (queryRequest QueryRequest) ProxyRequest() (*query.ProxyRequest, error) {
+	return queryRequest.proxyRequest(time.Now)
 }
 
-func (r QueryRequest) proxyRequest(now func() time.Time) (*query.ProxyRequest, error) {
-	if err := r.Validate(); err != nil {
+func (queryRequest QueryRequest) proxyRequest(now func() time.Time) (*query.ProxyRequest, error) {
+	if err := queryRequest.Validate(); err != nil {
 		return nil, err
 	}
 
-	n := r.Now
+	n := queryRequest.Now
 	if n.IsZero() {
 		n = now()
 	}
 
 	// Query is preferred over AST
 	var compiler flux.Compiler
-	if r.Query != "" {
-		switch r.Type {
+	if queryRequest.Query != "" {
+		switch queryRequest.Type {
 		case "flux":
 			fallthrough
 		default:
 			compiler = lang.FluxCompiler{
 				Now:    n,
-				Extern: r.Extern,
-				Query:  r.Query,
+				Extern: queryRequest.Extern,
+				Query:  queryRequest.Query,
 			}
 		}
-	} else if len(r.AST) > 0 {
+	} else if len(queryRequest.AST) > 0 {
 		c := lang.ASTCompiler{
-			Extern: r.Extern,
-			AST:    r.AST,
+			Extern: queryRequest.Extern,
+			AST:    queryRequest.AST,
 			Now:    n,
 		}
 		compiler = c
 	}
 
-	delimiter, _ := utf8.DecodeRuneInString(r.Dialect.Delimiter)
+	delimiter, _ := utf8.DecodeRuneInString(queryRequest.Dialect.Delimiter)
 
 	noHeader := false
-	if r.Dialect.Header != nil {
-		noHeader = !*r.Dialect.Header
+	if queryRequest.Dialect.Header != nil {
+		noHeader = !*queryRequest.Dialect.Header
 	}
 
 	var dialect flux.Dialect
-	if r.PreferNoContent {
+	if queryRequest.PreferNoContent {
 		dialect = &query.NoContentDialect{}
 	} else {
 		// TODO(nathanielc): Use commentPrefix and dateTimeFormat
@@ -220,9 +220,9 @@ func (r QueryRequest) proxyRequest(now func() time.Time) (*query.ProxyRequest, e
 		encConfig := csv.ResultEncoderConfig{
 			NoHeader:    noHeader,
 			Delimiter:   delimiter,
-			Annotations: r.Dialect.Annotations,
+			Annotations: queryRequest.Dialect.Annotations,
 		}
-		if r.PreferNoContentWithError {
+		if queryRequest.PreferNoContentWithError {
 			dialect = &query.NoContentWithErrorDialect{
 				ResultEncoderConfig: encConfig,
 			}
@@ -235,7 +235,7 @@ func (r QueryRequest) proxyRequest(now func() time.Time) (*query.ProxyRequest, e
 
 	return &query.ProxyRequest{
 		Request: query.Request{
-			OrganizationID: r.Org.ID,
+			OrganizationID: queryRequest.Org.ID,
 			Compiler:       compiler,
 		},
 		Dialect: dialect,
@@ -280,7 +280,7 @@ func QueryRequestFromProxyRequest(req *query.ProxyRequest) (*QueryRequest, error
 const fluxContentType = "application/vnd.flux"
 
 func decodeQueryRequest(ctx context.Context, r *http.Request, svc influxdb.OrganizationService) (*QueryRequest, int, error) {
-	var req QueryRequest
+	var queryRequest QueryRequest
 	body := &countReader{Reader: r.Body}
 
 	var contentType = "application/json"
@@ -289,74 +289,74 @@ func decodeQueryRequest(ctx context.Context, r *http.Request, svc influxdb.Organ
 	}
 	mt, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
-		return nil, body.bytesRead, err
+		return nil, body.readCount, err
 	}
 	switch mt {
 	case fluxContentType:
 		octets, err := io.ReadAll(body)
 		if err != nil {
-			return nil, body.bytesRead, err
+			return nil, body.readCount, err
 		}
-		req.Query = string(octets)
+		queryRequest.Query = string(octets)
 	case "application/json":
 		fallthrough
 	default:
-		if err := json.NewDecoder(body).Decode(&req); err != nil {
-			return nil, body.bytesRead,
+		if err := json.NewDecoder(body).Decode(&queryRequest); err != nil {
+			return nil, body.readCount,
 				fmt.Errorf("failed parsing request body as JSON; if sending a raw Flux script, set 'Content-Type: %s' in your request headers: %w", fluxContentType, err)
 		}
 	}
 
 	switch hv := r.Header.Get(query.PreferHeaderKey); hv {
 	case query.PreferNoContentHeaderValue:
-		req.PreferNoContent = true
+		queryRequest.PreferNoContent = true
 	case query.PreferNoContentWErrHeaderValue:
-		req.PreferNoContentWithError = true
+		queryRequest.PreferNoContentWithError = true
 	}
 
-	req = req.WithDefaults()
-	if err := req.Validate(); err != nil {
-		return nil, body.bytesRead, err
+	queryRequest = queryRequest.WithDefaults()
+	if err := queryRequest.Validate(); err != nil {
+		return nil, body.readCount, err
 	}
 
-	req.Org, err = queryOrganization(ctx, r, svc)
-	return &req, body.bytesRead, err
+	queryRequest.Org, err = queryOrganization(ctx, r, svc)
+	return &queryRequest, body.readCount, err
 }
 
 type countReader struct {
-	bytesRead int
+	readCount int
 	io.Reader
 }
 
 func (r *countReader) Read(p []byte) (n int, err error) {
 	n, err = r.Reader.Read(p)
-	r.bytesRead += n
+	r.readCount += n
 	return n, err
 }
 
-func decodeProxyQueryRequest(ctx context.Context, r *http.Request, auth influxdb.Authorizer, svc influxdb.OrganizationService) (*query.ProxyRequest, int, error) {
-	req, n, err := decodeQueryRequest(ctx, r, svc)
+func decodeProxyQueryRequest(ctx context.Context, httpReq *http.Request, authorizer influxdb.Authorizer, orgSvc influxdb.OrganizationService) (*query.ProxyRequest, int, error) {
+	queryRequest, n, err := decodeQueryRequest(ctx, httpReq, orgSvc)
 	if err != nil {
 		return nil, n, err
 	}
 
-	pr, err := req.ProxyRequest()
+	proxyRequest, err := queryRequest.ProxyRequest()
 	if err != nil {
 		return nil, n, err
 	}
 
-	var token *influxdb.Authorization
-	switch a := auth.(type) {
+	var authorization *influxdb.Authorization
+	switch a := authorizer.(type) {
 	case *influxdb.Authorization:
-		token = a
+		authorization = a
 	case *influxdb.Session:
-		token = a.EphemeralAuth(req.Org.ID)
+		authorization = a.EphemeralAuth(queryRequest.Org.ID)
 	case *jsonweb.Token:
-		token = a.EphemeralAuth(req.Org.ID)
+		authorization = a.EphemeralAuth(queryRequest.Org.ID)
 	default:
-		return pr, n, influxdb.ErrAuthorizerNotSupported
+		return proxyRequest, n, influxdb.ErrAuthorizerNotSupported
 	}
 
-	pr.Request.Authorization = token
-	return pr, n, nil
+	proxyRequest.Request.Authorization = authorization
+	return proxyRequest, n, nil
 }

@@ -127,34 +127,34 @@ func (i *asyncStatsResultIterator) Statistics() flux.Statistics {
 
 // ProxyQueryServiceAsyncBridge implements ProxyQueryService while consuming an AsyncQueryService
 type ProxyQueryServiceAsyncBridge struct {
-	AsyncQueryService AsyncQueryService
+	AsyncQueryService AsyncQueryService // 其实是 Controller
 }
 
-func (b ProxyQueryServiceAsyncBridge) Query(ctx context.Context, w io.Writer, req *ProxyRequest) (flux.Statistics, error) {
+func (b ProxyQueryServiceAsyncBridge) Query(ctx context.Context, writer io.Writer, req *ProxyRequest) (flux.Statistics, error) {
 	span, ctx := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
-	q, err := b.AsyncQueryService.Query(ctx, &req.Request)
+	query, err := b.AsyncQueryService.Query(ctx, &req.Request)
 	if err != nil {
 		return flux.Statistics{}, tracing.LogError(span, err)
 	}
 
-	results := flux.NewResultIteratorFromQuery(q)
-	defer results.Release()
+	resultIterator := flux.NewResultIteratorFromQuery(query)
+	defer resultIterator.Release()
 
 	encoder := req.Dialect.Encoder()
-	_, err = encoder.Encode(w, results)
+	_, err = encoder.Encode(writer, resultIterator)
 	// Release the results and collect the statistics regardless of the error.
-	results.Release()
-	stats := results.Statistics()
+	resultIterator.Release()
+	stats := resultIterator.Statistics()
 	if err != nil {
 		return stats, tracing.LogError(span, err)
 	}
 
-	if results, err := q.ProfilerResults(); err != nil {
+	if results, err := query.ProfilerResults(); err != nil {
 		return stats, tracing.LogError(span, err)
 	} else if results != nil {
-		_, err = encoder.Encode(w, results)
+		_, err = encoder.Encode(writer, results)
 		if err != nil {
 			return stats, tracing.LogError(span, err)
 		}

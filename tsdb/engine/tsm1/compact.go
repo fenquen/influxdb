@@ -35,10 +35,10 @@ const maxTSMFileSize = uint32(2048 * 1024 * 1024) // 2GB
 const logEvery = 2 * DefaultSegmentSize
 
 const (
-	// CompactionTempExtension is the extension used for temporary files created during compaction.
+	// the extension used for temporary files created during compaction
 	CompactionTempExtension = "tmp"
 
-	// TSMFileExtension is the extension used for TSM files.
+	// the extension used for TSM files
 	TSMFileExtension = "tsm"
 
 	// DefaultMaxSavedErrors is the number of errors that are stored by a TSMBatchKeyReader before
@@ -902,7 +902,7 @@ func (compactor *Compactor) WriteSnapshot(cacheSnapshot *Cache, logger *zap.Logg
 	return files, err
 }
 
-// write multiple smaller TSM files into 1 or more larger files
+// merge multiple smaller TSM files into 1 or more larger files
 func (compactor *Compactor) compact(fast bool, tsmFiles []string, logger *zap.Logger) ([]string, error) {
 	size := compactor.Size
 	if size <= 0 {
@@ -1042,7 +1042,7 @@ func (compactor *Compactor) removeTmpFiles(files []string) error {
 	return nil
 }
 
-// transfer data from the iterator into new TSM files
+// transfer data from the iterator into 多个 new TSM 文件
 // rotating to a new file once it has reached the max TSM file size.
 func (compactor *Compactor) writeNewTsmFiles(generation, sequence int, src []string, keyIterator KeyIterator, throttle bool, logger *zap.Logger) ([]string, error) {
 	// These are the new TSM files written
@@ -1052,23 +1052,23 @@ func (compactor *Compactor) writeNewTsmFiles(generation, sequence int, src []str
 		sequence++
 
 		// dirPath/generation-sequence.tsm.tmp
-		filePath := filepath.Join(compactor.DirPath, compactor.formatFileNameFunc(generation, sequence)+"."+TSMFileExtension+"."+TmpTSMFileExtension)
-		logger.Debug("Compacting files", zap.Int("file_count", len(src)), zap.String("output_file", filePath))
+		tmpTsmFilePath := filepath.Join(compactor.DirPath, compactor.formatFileNameFunc(generation, sequence)+"."+TSMFileExtension+"."+TmpTSMFileExtension)
+		logger.Debug("Compacting files", zap.Int("file_count", len(src)), zap.String("output_file", tmpTsmFilePath))
 
 		// Write as much as possible to this file
-		err := compactor.write(filePath, keyIterator, throttle, logger)
+		err := compactor.writeNewTsmFile(tmpTsmFilePath, keyIterator, throttle, logger)
 
 		// We've hit the max file limit and there is more to write.  Create a new file
 		// and continue.
 		if err == errMaxTsmFileSizeExceeded || err == ErrMaxBlocksExceeded {
-			files = append(files, filePath)
-			logger.Debug("file size or block count exceeded, opening another output file", zap.String("output_file", filePath))
+			files = append(files, tmpTsmFilePath)
+			logger.Debug("file size or block count exceeded, opening another output file", zap.String("output_file", tmpTsmFilePath))
 			continue
 		} else if err == ErrNoValues {
-			logger.Debug("Dropping empty file", zap.String("output_file", filePath))
+			logger.Debug("Dropping empty file", zap.String("output_file", tmpTsmFilePath))
 			// If the file only contained tombstoned entries, then it would be a 0 length
 			// file that we can drop.
-			if err = os.RemoveAll(filePath); err != nil {
+			if err = os.RemoveAll(tmpTsmFilePath); err != nil {
 				return nil, err
 			}
 			break
@@ -1085,24 +1085,24 @@ func (compactor *Compactor) writeNewTsmFiles(generation, sequence int, src []str
 			}
 			// Remove the temp file
 			// discard later errors to return the first one from the write() call
-			_ = os.RemoveAll(filePath)
+			_ = os.RemoveAll(tmpTsmFilePath)
 			return nil, err
 		}
 
-		files = append(files, filePath)
+		files = append(files, tmpTsmFilePath)
 		break
 	}
 
 	return files, nil
 }
 
-func (compactor *Compactor) write(path string, iter KeyIterator, throttle bool, logger *zap.Logger) (err error) {
-	fd, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0666)
+func (compactor *Compactor) writeNewTsmFile(newTsmFilePath string, keyIter KeyIterator, throttle bool, logger *zap.Logger) (err error) {
+	newTsmFile, err := os.OpenFile(newTsmFilePath, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0666)
 	if err != nil {
 		return errCompactionInProgress{err: err}
 	}
 
-	// syncingWriter ensures that whatever we wrap the above file descriptor in
+	// ensures that whatever we wrap the above file descriptor in
 	// it will always be able to be synced by the tsm writer, since it does
 	// type assertions to attempt to sync.
 	type syncingWriter interface {
@@ -1112,30 +1112,30 @@ func (compactor *Compactor) write(path string, iter KeyIterator, throttle bool, 
 
 	// Create the write for the new TSM file.
 	var (
-		w           TSMWriter
-		limitWriter syncingWriter = fd
+		tsmWriter   TSMWriter
+		limitWriter syncingWriter = newTsmFile
 	)
 
 	if compactor.RateLimit != nil && throttle {
-		limitWriter = limiter.NewWriterWithRate(fd, compactor.RateLimit)
+		limitWriter = limiter.NewWriterWithRate(newTsmFile, compactor.RateLimit)
 	}
 
 	// Use a disk based TSM buffer if it looks like we might create a big index
 	// in memory.
-	if iter.EstimatedIndexSize() > 64*1024*1024 {
-		w, err = NewTSMWriterWithDiskBuffer(limitWriter)
+	if keyIter.EstimatedIndexSize() > 64*1024*1024 {
+		tsmWriter, err = NewTSMWriterWithDiskBuffer(limitWriter)
 		if err != nil {
 			return err
 		}
 	} else {
-		w, err = NewTSMWriter(limitWriter)
+		tsmWriter, err = NewTSMWriter(limitWriter)
 		if err != nil {
 			return err
 		}
 	}
 
 	defer func() {
-		closeErr := w.Close()
+		closeErr := tsmWriter.Close()
 		if err == nil {
 			err = closeErr
 		}
@@ -1149,12 +1149,12 @@ func (compactor *Compactor) write(path string, iter KeyIterator, throttle bool, 
 		}
 
 		if err != nil {
-			_ = w.Remove()
+			_ = tsmWriter.Remove()
 		}
 	}()
 
-	lastLogSize := w.Size()
-	for iter.Next() {
+	lastLogSize := tsmWriter.Size()
+	for keyIter.Next() {
 		compactor.mu.RLock()
 		enabled := compactor.snapshotsEnabled || compactor.compactionsEnabled
 		compactor.mu.RUnlock()
@@ -1165,7 +1165,7 @@ func (compactor *Compactor) write(path string, iter KeyIterator, throttle bool, 
 		// Each call to read returns the next sorted key (or the prior one if there are
 		// more values to write).  The size of values will be less than or equal to our
 		// chunk size (1000)
-		key, minTime, maxTime, block, err := iter.Read()
+		key, minTime, maxTime, blockData, err := keyIter.Read()
 		if err != nil {
 			return err
 		}
@@ -1175,8 +1175,8 @@ func (compactor *Compactor) write(path string, iter KeyIterator, throttle bool, 
 		}
 
 		// Write the key and value
-		if err := w.WriteBlock(key, minTime, maxTime, block); err == ErrMaxBlocksExceeded {
-			if err := w.WriteIndex(); err != nil {
+		if err := tsmWriter.WriteBlock(key, minTime, maxTime, blockData); err == ErrMaxBlocksExceeded {
+			if err := tsmWriter.WriteIndex(); err != nil {
 				return err
 			}
 			return err
@@ -1185,29 +1185,29 @@ func (compactor *Compactor) write(path string, iter KeyIterator, throttle bool, 
 		}
 
 		// If we have a max file size configured and we're over it, close out the file
-		// and return the error.
-		if w.Size() > maxTSMFileSize {
-			if err := w.WriteIndex(); err != nil {
+		// and return the error
+		if tsmWriter.Size() > maxTSMFileSize {
+			if err := tsmWriter.WriteIndex(); err != nil {
 				return err
 			}
 
 			return errMaxTsmFileSizeExceeded
-		} else if (w.Size() - lastLogSize) > logEvery {
-			logger.Debug("Compaction progress", zap.String("output_file", path), zap.Uint32("size", w.Size()))
-			lastLogSize = w.Size()
+		} else if (tsmWriter.Size() - lastLogSize) > logEvery {
+			logger.Debug("Compaction progress", zap.String("output_file", newTsmFilePath), zap.Uint32("size", tsmWriter.Size()))
+			lastLogSize = tsmWriter.Size()
 		}
 	}
 
 	// Were there any errors encountered during iteration?
-	if err := iter.Err(); err != nil {
+	if err := keyIter.Err(); err != nil {
 		return err
 	}
 
 	// We're all done.  Close out the file.
-	if err := w.WriteIndex(); err != nil {
+	if err = tsmWriter.WriteIndex(); err != nil {
 		return err
 	}
-	logger.Debug("Compaction finished", zap.String("output_file", path), zap.Uint32("size", w.Size()))
+	logger.Debug("Compaction finished", zap.String("output_file", newTsmFilePath), zap.Uint32("size", tsmWriter.Size()))
 	return nil
 }
 
@@ -1239,10 +1239,10 @@ func (compactor *Compactor) remove(files []string) {
 
 // KeyIterator allows iteration over set of keys and values in sorted order.
 type KeyIterator interface {
-	// Next returns true if there are any values remaining in the iterator.
+	// returns true if there are any values remaining in the iterator.
 	Next() bool
 
-	// Read returns the key, time range, and raw data for the next block,
+	// returns the key, time range, and raw data for the next block,
 	// or any error that occurred.
 	Read() (key []byte, minTime int64, maxTime int64, data []byte, err error)
 
@@ -1252,7 +1252,7 @@ type KeyIterator interface {
 	// Err returns any errors encountered during iteration.
 	Err() error
 
-	// EstimatedIndexSize returns the estimated size of the index that would
+	// returns the estimated size of the index that would
 	// be required to store all the series and entries in the KeyIterator.
 	EstimatedIndexSize() int
 }
@@ -1318,7 +1318,7 @@ func (a blocks) Less(i, j int) bool {
 
 func (a blocks) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
-// tsmBatchKeyIterator implements the KeyIterator for set of TSMReaders.  Iteration produces
+// 用来合并多个tsm变为单个 implements the KeyIterator for set of TSMReaders.  Iteration produces
 // keys in sorted order and the values between the keys sorted and deduped.  If any of
 // the readers have associated tombstone entries, they are returned as part of iteration.
 type tsmBatchKeyIterator struct {
@@ -1651,6 +1651,7 @@ func (k *tsmBatchKeyIterator) Err() error {
 	return errs
 }
 
+// 用来读取cacheSnapshot然后写入tsm的
 type cacheKeyIterator struct {
 	cache *Cache
 	size  int
@@ -1664,9 +1665,9 @@ type cacheKeyIterator struct {
 }
 
 type cacheBlock struct {
-	k                []byte
+	key              []byte
 	minTime, maxTime int64
-	b                []byte
+	blockData        []byte // key 对应的 values 的tsm 格式
 	err              error
 }
 
@@ -1743,32 +1744,32 @@ func (c *cacheKeyIterator) encode() {
 					}
 
 					minTime, maxTime := values[0].UnixNano(), values[end-1].UnixNano()
-					var b []byte
+					var blockData []byte
 					var err error
-
+					// encode到tsm格式
 					switch values[0].(type) {
 					case FloatValue:
-						b, err = encodeFloatBlockUsing(nil, values[:end], timeEncoder, floatEncoder)
+						blockData, err = encodeFloatBlockUsing(nil, values[:end], timeEncoder, floatEncoder)
 					case IntegerValue:
-						b, err = encodeIntegerBlockUsing(nil, values[:end], timeEncoder, integerEncoder)
+						blockData, err = encodeIntegerBlockUsing(nil, values[:end], timeEncoder, integerEncoder)
 					case UnsignedValue:
-						b, err = encodeUnsignedBlockUsing(nil, values[:end], timeEncoder, unsignedEncoder)
+						blockData, err = encodeUnsignedBlockUsing(nil, values[:end], timeEncoder, unsignedEncoder)
 					case BooleanValue:
-						b, err = encodeBooleanBlockUsing(nil, values[:end], timeEncoder, booleanEncoder)
+						blockData, err = encodeBooleanBlockUsing(nil, values[:end], timeEncoder, booleanEncoder)
 					case StringValue:
-						b, err = encodeStringBlockUsing(nil, values[:end], timeEncoder, stringEncoder)
+						blockData, err = encodeStringBlockUsing(nil, values[:end], timeEncoder, stringEncoder)
 					default:
-						b, err = values[:end].Encode(nil)
+						blockData, err = values[:end].Encode(nil)
 					}
 
 					values = values[end:]
 
 					c.cacheBlocksPerKey[a] = append(c.cacheBlocksPerKey[a], cacheBlock{
-						k:       key,
-						minTime: minTime,
-						maxTime: maxTime,
-						b:       b,
-						err:     err,
+						key:       key,
+						minTime:   minTime,
+						maxTime:   maxTime,
+						blockData: blockData,
+						err:       err,
 					})
 
 					if err != nil {
@@ -1808,8 +1809,8 @@ func (c *cacheKeyIterator) Read() ([]byte, int64, int64, []byte, error) {
 	default:
 	}
 
-	blk := c.cacheBlocksPerKey[c.currentIndex][0]
-	return blk.k, blk.minTime, blk.maxTime, blk.b, blk.err
+	cacheBlock := c.cacheBlocksPerKey[c.currentIndex][0]
+	return cacheBlock.key, cacheBlock.minTime, cacheBlock.maxTime, cacheBlock.blockData, cacheBlock.err
 }
 
 func (c *cacheKeyIterator) Close() error {
