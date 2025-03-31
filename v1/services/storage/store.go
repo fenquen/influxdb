@@ -47,7 +47,7 @@ type Store struct {
 	Logger     *zap.Logger
 }
 
-func (s *Store) WindowAggregate(ctx context.Context, req *datatypes.ReadWindowAggregateRequest) (reads.ResultSet, error) {
+func (store *Store) WindowAggregate(ctx context.Context, req *datatypes.ReadWindowAggregateRequest) (reads.ResultSet, error) {
 	if req.ReadSource == nil {
 		return nil, ErrMissingReadSource
 	}
@@ -57,7 +57,7 @@ func (s *Store) WindowAggregate(ctx context.Context, req *datatypes.ReadWindowAg
 		return nil, err
 	}
 
-	database, rp, start, end, err := s.validateArgs(source.GetOrgID(), source.GetBucketID(), req.Range.GetStart(), req.Range.GetEnd())
+	database, rp, start, end, err := store.validateArgs(source.GetOrgID(), source.GetBucketID(), req.Range.GetStart(), req.Range.GetEnd())
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (s *Store) WindowAggregate(ctx context.Context, req *datatypes.ReadWindowAg
 	// storage engine, we need to detect if the read request requires a descending
 	// cursor or not.
 	descending := reads.IsLastDescendingAggregateOptimization(req)
-	shardIDs, err := s.findShardIDs(database, rp, descending, start, end)
+	shardIDs, err := store.findShardIDs(database, rp, descending, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (s *Store) WindowAggregate(ctx context.Context, req *datatypes.ReadWindowAg
 	}
 
 	var cur reads.SeriesCursor
-	if ic, err := newIndexSeriesCursor(ctx, req.Predicate, s.TSDBStore.Shards(shardIDs)); err != nil {
+	if ic, err := newIndexSeriesCursor(ctx, req.Predicate, store.TSDBStore.Shards(shardIDs)); err != nil {
 		return nil, err
 	} else if ic == nil { // TODO(jeff): this was a typed nil
 		return nil, nil
@@ -95,28 +95,28 @@ func NewStore(store TSDBStore, metaClient MetaClient) *Store {
 }
 
 // WithLogger sets the logger for the service.
-func (s *Store) WithLogger(log *zap.Logger) {
-	s.Logger = log.With(zap.String("service", "store"))
+func (store *Store) WithLogger(log *zap.Logger) {
+	store.Logger = log.With(zap.String("service", "store"))
 }
 
-func (s *Store) findShardIDs(database, rp string, desc bool, start, end int64) ([]uint64, error) {
-	groups, err := s.MetaClient.ShardGroupsByTimeRange(database, rp, time.Unix(0, start), time.Unix(0, end))
+func (store *Store) findShardIDs(database, rp string, desc bool, start, end int64) ([]uint64, error) {
+	shardGroupInfos, err := store.MetaClient.ShardGroupsByTimeRange(database, rp, time.Unix(0, start), time.Unix(0, end))
 	if err != nil {
 		return nil, err
 	}
 
-	if len(groups) == 0 {
+	if len(shardGroupInfos) == 0 {
 		return nil, nil
 	}
 
 	if desc {
-		sort.Sort(sort.Reverse(meta.ShardGroupInfos(groups)))
+		sort.Sort(sort.Reverse(meta.ShardGroupInfos(shardGroupInfos)))
 	} else {
-		sort.Sort(meta.ShardGroupInfos(groups))
+		sort.Sort(meta.ShardGroupInfos(shardGroupInfos))
 	}
 
-	shardIDs := make([]uint64, 0, len(groups[0].ShardInfos)*len(groups))
-	for _, g := range groups {
+	shardIDs := make([]uint64, 0, len(shardGroupInfos[0].ShardInfos)*len(shardGroupInfos))
+	for _, g := range shardGroupInfos {
 		for _, si := range g.ShardInfos {
 			shardIDs = append(shardIDs, si.ID)
 		}
@@ -124,17 +124,17 @@ func (s *Store) findShardIDs(database, rp string, desc bool, start, end int64) (
 	return shardIDs, nil
 }
 
-func (s *Store) validateArgs(orgID, bucketID uint64, start, end int64) (string, string, int64, int64, error) {
-	database := platform.ID(bucketID).String()
-	rp := meta.DefaultRetentionPolicyName
+func (store *Store) validateArgs(_, bucketID uint64, start, end int64) (string, string, int64, int64, error) {
+	bucketIdStr := platform.ID(bucketID).String()
+	retentionPolicyName := meta.DefaultRetentionPolicyName
 
-	di := s.MetaClient.Database(database)
-	if di == nil {
+	databaseInfo := store.MetaClient.Database(bucketIdStr)
+	if databaseInfo == nil {
 		return "", "", 0, 0, errors.New("no database")
 	}
 
-	rpi := di.RetentionPolicy(rp)
-	if rpi == nil {
+	retentionPolicyInfo := databaseInfo.RetentionPolicy(retentionPolicyName)
+	if retentionPolicyInfo == nil {
 		return "", "", 0, 0, errors.New("invalid retention policy")
 	}
 
@@ -144,25 +144,25 @@ func (s *Store) validateArgs(orgID, bucketID uint64, start, end int64) (string, 
 	if end <= 0 {
 		end = models.MaxNanoTime
 	}
-	return database, rp, start, end, nil
+	return bucketIdStr, retentionPolicyName, start, end, nil
 }
 
-func (s *Store) ReadFilter(ctx context.Context, req *datatypes.ReadFilterRequest) (reads.ResultSet, error) {
+func (store *Store) ReadFilter(ctx context.Context, req *datatypes.ReadFilterRequest) (reads.ResultSet, error) {
 	if req.ReadSource == nil {
 		return nil, ErrMissingReadSource
 	}
 
-	source, err := GetReadSource(req.ReadSource)
+	readSource, err := GetReadSource(req.ReadSource)
 	if err != nil {
 		return nil, err
 	}
 
-	database, rp, start, end, err := s.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
+	bucketIdStr, retentionPolicyName, start, end, err := store.validateArgs(readSource.OrgID, readSource.BucketID, req.Range.GetStart(), req.Range.GetEnd())
 	if err != nil {
 		return nil, err
 	}
 
-	shardIDs, err := s.findShardIDs(database, rp, false, start, end)
+	shardIDs, err := store.findShardIDs(bucketIdStr, retentionPolicyName, false, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -170,13 +170,13 @@ func (s *Store) ReadFilter(ctx context.Context, req *datatypes.ReadFilterRequest
 		return nil, nil
 	}
 
-	var cur reads.SeriesCursor
-	if ic, err := newIndexSeriesCursor(ctx, req.Predicate, s.TSDBStore.Shards(shardIDs)); err != nil {
+	var seriesCursor reads.SeriesCursor
+	if ic, err := newIndexSeriesCursor(ctx, req.Predicate, store.TSDBStore.Shards(shardIDs)); err != nil {
 		return nil, err
 	} else if ic == nil { // TODO(jeff): this was a typed nil
 		return nil, nil
 	} else {
-		cur = ic
+		seriesCursor = ic
 	}
 
 	req.Range = &datatypes.TimestampRange{
@@ -184,10 +184,10 @@ func (s *Store) ReadFilter(ctx context.Context, req *datatypes.ReadFilterRequest
 		End:   end,
 	}
 
-	return reads.NewFilteredResultSet(ctx, req.Range.GetStart(), req.Range.GetEnd(), cur), nil
+	return reads.NewFilteredResultSet(ctx, req.Range.GetStart(), req.Range.GetEnd(), seriesCursor), nil
 }
 
-func (s *Store) ReadGroup(ctx context.Context, req *datatypes.ReadGroupRequest) (reads.GroupResultSet, error) {
+func (store *Store) ReadGroup(ctx context.Context, req *datatypes.ReadGroupRequest) (reads.GroupResultSet, error) {
 	if req.ReadSource == nil {
 		return nil, ErrMissingReadSource
 	}
@@ -197,7 +197,7 @@ func (s *Store) ReadGroup(ctx context.Context, req *datatypes.ReadGroupRequest) 
 		return nil, err
 	}
 
-	database, rp, start, end, err := s.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
+	database, rp, start, end, err := store.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (s *Store) ReadGroup(ctx context.Context, req *datatypes.ReadGroupRequest) 
 	// storage engine, we need to detect if the read request requires a descending
 	// cursor or not.
 	descending := reads.IsLastDescendingGroupOptimization(req)
-	shardIDs, err := s.findShardIDs(database, rp, descending, start, end)
+	shardIDs, err := store.findShardIDs(database, rp, descending, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (s *Store) ReadGroup(ctx context.Context, req *datatypes.ReadGroupRequest) 
 		return nil, nil
 	}
 
-	shards := s.TSDBStore.Shards(shardIDs)
+	shards := store.TSDBStore.Shards(shardIDs)
 
 	req.Range = &datatypes.TimestampRange{
 		Start: start,
@@ -244,9 +244,9 @@ type metaqueryAttributes struct {
 	pred       influxql.Expr
 }
 
-func (s *Store) tagKeysWithFieldPredicate(ctx context.Context, mqAttrs *metaqueryAttributes, shardIDs []uint64) (cursors.StringIterator, error) {
+func (store *Store) tagKeysWithFieldPredicate(ctx context.Context, mqAttrs *metaqueryAttributes, shardIDs []uint64) (cursors.StringIterator, error) {
 	var cur reads.SeriesCursor
-	if ic, err := newIndexSeriesCursorInfluxQLPred(ctx, mqAttrs.pred, s.TSDBStore.Shards(shardIDs)); err != nil {
+	if ic, err := newIndexSeriesCursorInfluxQLPred(ctx, mqAttrs.pred, store.TSDBStore.Shards(shardIDs)); err != nil {
 		return nil, err
 	} else if ic == nil {
 		return cursors.EmptyStringIterator, nil
@@ -280,7 +280,7 @@ func (s *Store) tagKeysWithFieldPredicate(ctx context.Context, mqAttrs *metaquer
 	return cursors.NewStringSliceIterator(arr), nil
 }
 
-func (s *Store) TagKeys(ctx context.Context, req *datatypes.TagKeysRequest) (cursors.StringIterator, error) {
+func (store *Store) TagKeys(ctx context.Context, req *datatypes.TagKeysRequest) (cursors.StringIterator, error) {
 	if req.TagsSource == nil {
 		return nil, ErrMissingReadSource
 	}
@@ -288,12 +288,12 @@ func (s *Store) TagKeys(ctx context.Context, req *datatypes.TagKeysRequest) (cur
 	if err != nil {
 		return nil, err
 	}
-	db, rp, start, end, err := s.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
+	db, rp, start, end, err := store.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
 	if err != nil {
 		return nil, err
 	}
 
-	shardIDs, err := s.findShardIDs(db, rp, false, start, end)
+	shardIDs, err := store.findShardIDs(db, rp, false, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +321,7 @@ func (s *Store) TagKeys(ctx context.Context, req *datatypes.TagKeysRequest) (cur
 				end:   end,
 				pred:  expr,
 			}
-			return s.tagKeysWithFieldPredicate(ctx, mqAttrs, shardIDs)
+			return store.tagKeysWithFieldPredicate(ctx, mqAttrs, shardIDs)
 		}
 		expr = influxql.Reduce(influxql.CloneExpr(expr), nil)
 		if reads.IsTrueBooleanLiteral(expr) {
@@ -331,7 +331,7 @@ func (s *Store) TagKeys(ctx context.Context, req *datatypes.TagKeysRequest) (cur
 
 	// TODO(jsternberg): Use a real authorizer.
 	auth := query.OpenAuthorizer
-	keys, err := s.TSDBStore.TagKeys(ctx, auth, shardIDs, expr)
+	keys, err := store.TSDBStore.TagKeys(ctx, auth, shardIDs, expr)
 	if err != nil {
 		return cursors.EmptyStringIterator, err
 	}
@@ -354,7 +354,7 @@ func (s *Store) TagKeys(ctx context.Context, req *datatypes.TagKeysRequest) (cur
 	return cursors.NewStringSliceIterator(names), nil
 }
 
-func (s *Store) TagValues(ctx context.Context, req *datatypes.TagValuesRequest) (cursors.StringIterator, error) {
+func (store *Store) TagValues(ctx context.Context, req *datatypes.TagValuesRequest) (cursors.StringIterator, error) {
 	if req.TagsSource == nil {
 		return nil, ErrMissingReadSource
 	}
@@ -364,7 +364,7 @@ func (s *Store) TagValues(ctx context.Context, req *datatypes.TagValuesRequest) 
 		return nil, err
 	}
 
-	db, rp, start, end, err := s.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
+	db, rp, start, end, err := store.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
 	if err != nil {
 		return nil, err
 	}
@@ -404,25 +404,25 @@ func (s *Store) TagValues(ctx context.Context, req *datatypes.TagValuesRequest) 
 	// Getting values of _measurement or _field are handled specially
 	switch tagKey {
 	case "_name":
-		return s.MeasurementNames(ctx, mqAttrs)
+		return store.MeasurementNames(ctx, mqAttrs)
 
 	case "_field":
-		return s.measurementFields(ctx, mqAttrs)
+		return store.measurementFields(ctx, mqAttrs)
 	}
 
-	return s.tagValues(ctx, mqAttrs, tagKey)
+	return store.tagValues(ctx, mqAttrs, tagKey)
 }
 
-func (s *Store) tagValues(ctx context.Context, mqAttrs *metaqueryAttributes, tagKey string) (cursors.StringIterator, error) {
+func (store *Store) tagValues(ctx context.Context, mqAttrs *metaqueryAttributes, tagKey string) (cursors.StringIterator, error) {
 	// If there are any references to _field, we need to use the slow path
 	// since we cannot rely on the index alone.
 	if mqAttrs.pred != nil {
 		if hasFieldKey := reads.ExprHasKey(mqAttrs.pred, fieldKey); hasFieldKey {
-			return s.tagValuesSlow(ctx, mqAttrs, tagKey)
+			return store.tagValuesSlow(ctx, mqAttrs, tagKey)
 		}
 	}
 
-	shardIDs, err := s.findShardIDs(mqAttrs.db, mqAttrs.rp, false, mqAttrs.start, mqAttrs.end)
+	shardIDs, err := store.findShardIDs(mqAttrs.db, mqAttrs.rp, false, mqAttrs.start, mqAttrs.end)
 	if err != nil {
 		return nil, err
 	}
@@ -454,7 +454,7 @@ func (s *Store) tagValues(ctx context.Context, mqAttrs *metaqueryAttributes, tag
 
 	// TODO(jsternberg): Use a real authorizer.
 	auth := query.OpenAuthorizer
-	values, err := s.TSDBStore.TagValues(ctx, auth, shardIDs, mqAttrs.pred)
+	values, err := store.TSDBStore.TagValues(ctx, auth, shardIDs, mqAttrs.pred)
 	if err != nil {
 		return nil, err
 	}
@@ -474,19 +474,19 @@ func (s *Store) tagValues(ctx context.Context, mqAttrs *metaqueryAttributes, tag
 	return cursors.NewStringSliceIterator(names), nil
 }
 
-func (s *Store) MeasurementNames(ctx context.Context, mqAttrs *metaqueryAttributes) (cursors.StringIterator, error) {
+func (store *Store) MeasurementNames(ctx context.Context, mqAttrs *metaqueryAttributes) (cursors.StringIterator, error) {
 	if mqAttrs.pred != nil {
 		if hasFieldKey := reads.ExprHasKey(mqAttrs.pred, fieldKey); hasFieldKey {
 			// If there is a predicate on _field, we cannot use the index
 			// to filter out unwanted measurement names. Use a slower
 			// block scan instead.
-			return s.tagValuesSlow(ctx, mqAttrs, measurementKey)
+			return store.tagValuesSlow(ctx, mqAttrs, measurementKey)
 		}
 	}
 
 	// TODO(jsternberg): Use a real authorizer.
 	auth := query.OpenAuthorizer
-	values, err := s.TSDBStore.MeasurementNames(ctx, auth, mqAttrs.db, mqAttrs.pred)
+	values, err := store.TSDBStore.MeasurementNames(ctx, auth, mqAttrs.db, mqAttrs.pred)
 	if err != nil {
 		return nil, err
 	}
@@ -504,27 +504,27 @@ func (s *Store) MeasurementNames(ctx context.Context, mqAttrs *metaqueryAttribut
 	return cursors.NewStringSliceIterator(names), nil
 }
 
-func (s *Store) GetSource(orgID, bucketID uint64) proto.Message {
+func (store *Store) GetSource(orgID, bucketID uint64) proto.Message {
 	return &ReadSource{
 		BucketID: bucketID,
 		OrgID:    orgID,
 	}
 }
 
-func (s *Store) measurementFields(ctx context.Context, mqAttrs *metaqueryAttributes) (cursors.StringIterator, error) {
+func (store *Store) measurementFields(ctx context.Context, mqAttrs *metaqueryAttributes) (cursors.StringIterator, error) {
 	if mqAttrs.pred != nil {
 		if hasFieldKey := reads.ExprHasKey(mqAttrs.pred, fieldKey); hasFieldKey {
-			return s.tagValuesSlow(ctx, mqAttrs, fieldKey)
+			return store.tagValuesSlow(ctx, mqAttrs, fieldKey)
 		}
 
 		// If there predicates on anything besides _measurement, we can't
 		// use the index and need to use the slow path.
 		if hasTagKey(mqAttrs.pred) {
-			return s.tagValuesSlow(ctx, mqAttrs, fieldKey)
+			return store.tagValuesSlow(ctx, mqAttrs, fieldKey)
 		}
 	}
 
-	shardIDs, err := s.findShardIDs(mqAttrs.db, mqAttrs.rp, false, mqAttrs.start, mqAttrs.end)
+	shardIDs, err := store.findShardIDs(mqAttrs.db, mqAttrs.rp, false, mqAttrs.start, mqAttrs.end)
 	if err != nil {
 		return nil, err
 	}
@@ -532,7 +532,7 @@ func (s *Store) measurementFields(ctx context.Context, mqAttrs *metaqueryAttribu
 		return cursors.EmptyStringIterator, nil
 	}
 
-	sg := s.TSDBStore.ShardGroup(shardIDs)
+	sg := store.TSDBStore.ShardGroup(shardIDs)
 	ms := &influxql.Measurement{
 		Database:        mqAttrs.db,
 		RetentionPolicy: mqAttrs.rp,
@@ -601,8 +601,8 @@ func cursorHasData(c cursors.Cursor) bool {
 // stored in the shard. Because fields are not themselves indexed, we have no way
 // of correlating fields to tag values, so we sometimes need to consult tsm to
 // provide an accurate answer.
-func (s *Store) tagValuesSlow(ctx context.Context, mqAttrs *metaqueryAttributes, tagKey string) (cursors.StringIterator, error) {
-	shardIDs, err := s.findShardIDs(mqAttrs.db, mqAttrs.rp, false, mqAttrs.start, mqAttrs.end)
+func (store *Store) tagValuesSlow(ctx context.Context, mqAttrs *metaqueryAttributes, tagKey string) (cursors.StringIterator, error) {
+	shardIDs, err := store.findShardIDs(mqAttrs.db, mqAttrs.rp, false, mqAttrs.start, mqAttrs.end)
 	if err != nil {
 		return nil, err
 	}
@@ -611,7 +611,7 @@ func (s *Store) tagValuesSlow(ctx context.Context, mqAttrs *metaqueryAttributes,
 	}
 
 	var cur reads.SeriesCursor
-	if ic, err := newIndexSeriesCursorInfluxQLPred(ctx, mqAttrs.pred, s.TSDBStore.Shards(shardIDs)); err != nil {
+	if ic, err := newIndexSeriesCursorInfluxQLPred(ctx, mqAttrs.pred, store.TSDBStore.Shards(shardIDs)); err != nil {
 		return nil, err
 	} else if ic == nil {
 		return cursors.EmptyStringIterator, nil
@@ -649,7 +649,7 @@ func (s *Store) tagValuesSlow(ctx context.Context, mqAttrs *metaqueryAttributes,
 	return cursors.NewStringSliceIterator(names), nil
 }
 
-func (s *Store) ReadSeriesCardinality(ctx context.Context, req *datatypes.ReadSeriesCardinalityRequest) (cursors.Int64Iterator, error) {
+func (store *Store) ReadSeriesCardinality(ctx context.Context, req *datatypes.ReadSeriesCardinalityRequest) (cursors.Int64Iterator, error) {
 	if req.ReadSource == nil {
 		return nil, ErrMissingReadSource
 	}
@@ -659,12 +659,12 @@ func (s *Store) ReadSeriesCardinality(ctx context.Context, req *datatypes.ReadSe
 		return nil, err
 	}
 
-	db, rp, start, end, err := s.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
+	db, rp, start, end, err := store.validateArgs(source.OrgID, source.BucketID, req.Range.GetStart(), req.Range.GetEnd())
 	if err != nil {
 		return nil, err
 	}
 
-	sgs, err := s.MetaClient.ShardGroupsByTimeRange(db, rp, time.Unix(0, start), time.Unix(0, end))
+	sgs, err := store.MetaClient.ShardGroupsByTimeRange(db, rp, time.Unix(0, start), time.Unix(0, end))
 	if err != nil {
 		return nil, err
 	}
@@ -699,18 +699,18 @@ func (s *Store) ReadSeriesCardinality(ctx context.Context, req *datatypes.ReadSe
 	}
 
 	shardsEntirelyInTimeRange, shardsPartiallyInTimeRange := groupShardsByTime(sgs, start, end)
-	sfile := s.TSDBStore.SeriesFile(db)
+	sfile := store.TSDBStore.SeriesFile(db)
 
 	// Get the cardinality for the set of shards that are completely within the
 	// provided time range. This can be done much faster than verifying that the
 	// series have data in the time range, so it is done separately.
-	c1, err := s.seriesCardinalityWithPredicate(ctx, s.TSDBStore.Shards(shardsEntirelyInTimeRange), expr, sfile)
+	c1, err := store.seriesCardinalityWithPredicate(ctx, store.TSDBStore.Shards(shardsEntirelyInTimeRange), expr, sfile)
 	if err != nil {
 		return nil, err
 	}
 
 	// Others use a slower way
-	c2, err := s.seriesCardinalityWithPredicateAndTime(ctx, s.TSDBStore.Shards(shardsPartiallyInTimeRange), expr, sfile, start, end)
+	c2, err := store.seriesCardinalityWithPredicateAndTime(ctx, store.TSDBStore.Shards(shardsPartiallyInTimeRange), expr, sfile, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -721,9 +721,9 @@ func (s *Store) ReadSeriesCardinality(ctx context.Context, req *datatypes.ReadSe
 	return cursors.NewInt64SliceIterator([]int64{int64(ss.Cardinality())}), nil
 }
 
-func (s *Store) seriesCardinalityWithPredicate(ctx context.Context, shards []*tsdb.Shard, expr influxql.Expr, sfile *tsdb.SeriesFile) (*tsdb.SeriesIDSet, error) {
+func (store *Store) seriesCardinalityWithPredicate(ctx context.Context, shards []*tsdb.Shard, expr influxql.Expr, sfile *tsdb.SeriesFile) (*tsdb.SeriesIDSet, error) {
 	if expr == nil {
-		return s.TSDBStore.SeriesCardinalityFromShards(ctx, shards)
+		return store.TSDBStore.SeriesCardinalityFromShards(ctx, shards)
 	}
 
 	ss := tsdb.NewSeriesIDSet()
@@ -749,7 +749,7 @@ func (s *Store) seriesCardinalityWithPredicate(ctx context.Context, shards []*ts
 	return ss, nil
 }
 
-func (s *Store) seriesCardinalityWithPredicateAndTime(ctx context.Context, shards []*tsdb.Shard, expr influxql.Expr, sfile *tsdb.SeriesFile, start, end int64) (*tsdb.SeriesIDSet, error) {
+func (store *Store) seriesCardinalityWithPredicateAndTime(ctx context.Context, shards []*tsdb.Shard, expr influxql.Expr, sfile *tsdb.SeriesFile, start, end int64) (*tsdb.SeriesIDSet, error) {
 	ss := tsdb.NewSeriesIDSet()
 	if len(shards) == 0 {
 		return ss, nil
@@ -782,7 +782,7 @@ func (s *Store) seriesCardinalityWithPredicateAndTime(ctx context.Context, shard
 	return ss, nil
 }
 
-func (s *Store) SupportReadSeriesCardinality(ctx context.Context) bool {
+func (store *Store) SupportReadSeriesCardinality(ctx context.Context) bool {
 	return true
 }
 

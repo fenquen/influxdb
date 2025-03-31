@@ -71,18 +71,18 @@ func (s *ReadRangePhysSpec) Copy() plan.ProcedureSpec {
 	return &ns
 }
 
-func (s *ReadRangePhysSpec) LookupBucketID(ctx context.Context, orgID platform.ID, buckets BucketLookup) (platform.ID, error) {
+func (s *ReadRangePhysSpec) LookupBucketID(ctx context.Context, orgID platform.ID, bucketLookup BucketLookup) (platform.ID, error) {
 	// Determine bucketID
 	switch {
 	case s.Bucket != "":
-		b, ok := buckets.Lookup(ctx, orgID, s.Bucket)
+		bucketId, ok := bucketLookup.Lookup(ctx, orgID, s.Bucket)
 		if !ok {
 			return 0, &flux.Error{
 				Code: codes.NotFound,
 				Msg:  fmt.Sprintf("could not find bucket %q", s.Bucket),
 			}
 		}
-		return b, nil
+		return bucketId, nil
 	case len(s.BucketID) != 0:
 		var b platform.ID
 		if err := b.DecodeFromString(s.BucketID); err != nil {

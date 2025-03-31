@@ -15,6 +15,7 @@ import (
 
 const MaxIDGenerationN = 100
 
+// 包裹了元数据例如org和bucket等的kv store
 type Store struct {
 	kvStore     kv.Store
 	IDGen       platform.IDGenerator

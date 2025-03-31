@@ -12,7 +12,7 @@ import (
 
 var (
 	bucketBucket = []byte("bucketsv1")
-	bucketIndex  = []byte("bucketindexv1")
+	bucketIndex  = []byte("bucketindexv1") // bbolt保存influxdb的bucket信息的bucket
 )
 
 func bucketIndexKey(o platform.ID, name string) ([]byte, error) {
@@ -101,8 +101,8 @@ func (s *Store) GetBucket(ctx context.Context, tx kv.Tx, id platform.ID) (*influ
 	return unmarshalBucket(v)
 }
 
-func (s *Store) GetBucketByName(ctx context.Context, tx kv.Tx, orgID platform.ID, n string) (*influxdb.Bucket, error) {
-	key, err := bucketIndexKey(orgID, n)
+func (s *Store) GetBucketByName(ctx context.Context, tx kv.Tx, orgID platform.ID, bucketName string) (*influxdb.Bucket, error) {
+	key, err := bucketIndexKey(orgID, bucketName)
 	if err != nil {
 		return nil, &errors.Error{
 			Code: errors.EInvalid,
@@ -119,7 +119,7 @@ func (s *Store) GetBucketByName(ctx context.Context, tx kv.Tx, orgID platform.ID
 
 	// allow for hard coded bucket names that dont exist in the system
 	if kv.IsNotFound(err) {
-		return nil, ErrBucketNotFoundByName(n)
+		return nil, ErrBucketNotFoundByName(bucketName)
 	}
 
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *Store) GetBucketByName(ctx context.Context, tx kv.Tx, orgID platform.ID
 	}
 
 	var id platform.ID
-	if err := id.Decode(buf); err != nil {
+	if err = id.Decode(buf); err != nil {
 		return nil, &errors.Error{
 			Err: err,
 		}

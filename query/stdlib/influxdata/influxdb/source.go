@@ -31,8 +31,8 @@ type runner interface {
 
 type Source struct {
 	execute.ExecutionNode
-	id execute.DatasetID
-	ts []execute.Transformation
+	id              execute.DatasetID
+	transformations []execute.Transformation
 
 	alloc memory.Allocator
 	stats cursors.CursorStats
@@ -44,66 +44,66 @@ type Source struct {
 	op    string
 }
 
-func (s *Source) Run(ctx context.Context) {
-	labelValues := s.m.getLabelValues(ctx, s.orgID, s.op)
+func (source *Source) Run(ctx context.Context) {
+	labelValues := source.m.getLabelValues(ctx, source.orgID, source.op)
 	start := time.Now()
-	err := s.runner.run(ctx)
-	s.m.recordMetrics(labelValues, start)
-	for _, t := range s.ts {
-		t.Finish(s.id, err)
+	err := source.runner.run(ctx) // readFilterSource
+	source.m.recordMetrics(labelValues, start)
+	for _, t := range source.transformations {
+		t.Finish(source.id, err)
 	}
 }
 
-func (s *Source) AddTransformation(t execute.Transformation) {
-	s.ts = append(s.ts, t)
+func (source *Source) AddTransformation(t execute.Transformation) {
+	source.transformations = append(source.transformations, t)
 }
 
-func (s *Source) Metadata() metadata.Metadata {
+func (source *Source) Metadata() metadata.Metadata {
 	return metadata.Metadata{
-		"influxdb/scanned-bytes":  []interface{}{s.stats.ScannedBytes},
-		"influxdb/scanned-values": []interface{}{s.stats.ScannedValues},
+		"influxdb/scanned-bytes":  []interface{}{source.stats.ScannedBytes},
+		"influxdb/scanned-values": []interface{}{source.stats.ScannedValues},
 	}
 }
 
-func (s *Source) processTables(ctx context.Context, tables query.TableIterator, watermark execute.Time) error {
-	err := tables.Do(func(tbl flux.Table) error {
-		return s.processTable(ctx, tbl)
+func (source *Source) processTables(ctx context.Context, tableIterator query.TableIterator, watermark execute.Time) error {
+	err := tableIterator.Do(func(table flux.Table) error {
+		return source.processTable(ctx, table)
 	})
 	if err != nil {
 		return err
 	}
 
 	// Track the number of bytes and values scanned.
-	stats := tables.Statistics()
-	s.stats.ScannedValues += stats.ScannedValues
-	s.stats.ScannedBytes += stats.ScannedBytes
+	stats := tableIterator.Statistics()
+	source.stats.ScannedValues += stats.ScannedValues
+	source.stats.ScannedBytes += stats.ScannedBytes
 
-	for _, t := range s.ts {
-		if err := t.UpdateWatermark(s.id, watermark); err != nil {
+	for _, t := range source.transformations {
+		if err := t.UpdateWatermark(source.id, watermark); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Source) processTable(ctx context.Context, tbl flux.Table) error {
-	if len(s.ts) == 0 {
-		tbl.Done()
+func (source *Source) processTable(_ context.Context, table flux.Table) error {
+	if len(source.transformations) == 0 {
+		table.Done()
 		return nil
-	} else if len(s.ts) == 1 {
-		return s.ts[0].Process(s.id, tbl)
+	} else if len(source.transformations) == 1 {
+		return source.transformations[0].Process(source.id, table)
 	}
 
 	// There is more than one transformation so we need to
 	// copy the table for each transformation.
-	bufTable, err := execute.CopyTable(tbl)
+	bufTable, err := execute.CopyTable(table)
 	if err != nil {
 		return err
 	}
 	defer bufTable.Done()
 
-	for _, t := range s.ts {
-		if err := t.Process(s.id, bufTable.Copy()); err != nil {
+	for _, transformation := range source.transformations {
+		if err = transformation.Process(source.id, bufTable.Copy()); err != nil {
 			return err
 		}
 	}
@@ -112,45 +112,45 @@ func (s *Source) processTable(ctx context.Context, tbl flux.Table) error {
 
 type readFilterSource struct {
 	Source
-	reader   query.StorageReader
-	readSpec query.ReadFilterSpec
+	storageReader  query.StorageReader
+	readFilterSpec query.ReadFilterSpec
 }
 
-func ReadFilterSource(id execute.DatasetID, r query.StorageReader, readSpec query.ReadFilterSpec, a execute.Administration) execute.Source {
+func ReadFilterSource(id execute.DatasetID, storageReader query.StorageReader, readFilterSpec query.ReadFilterSpec, a execute.Administration) execute.Source {
 	src := new(readFilterSource)
 
 	src.id = id
 	src.alloc = a.Allocator()
 
-	src.reader = r
-	src.readSpec = readSpec
+	src.storageReader = storageReader
+	src.readFilterSpec = readFilterSpec
 
 	src.m = GetStorageDependencies(a.Context()).FromDeps.Metrics
-	src.orgID = readSpec.OrganizationID
+	src.orgID = readFilterSpec.OrganizationID
 	src.op = "readFilter"
 
 	src.runner = src
 	return src
 }
 
-func (s *readFilterSource) run(ctx context.Context) error {
-	stop := s.readSpec.Bounds.Stop
-	tables, err := s.reader.ReadFilter(
+func (readFilterSource *readFilterSource) run(ctx context.Context) error {
+	stop := readFilterSource.readFilterSpec.Bounds.Stop
+	tableIterator, err := readFilterSource.storageReader.ReadFilter( // filterIterator
 		ctx,
-		s.readSpec,
-		s.alloc,
+		readFilterSource.readFilterSpec,
+		readFilterSource.alloc,
 	)
 	if err != nil {
 		return err
 	}
-	return s.processTables(ctx, tables, stop)
+	return readFilterSource.processTables(ctx, tableIterator, stop)
 }
 
 func createReadFilterSource(s plan.ProcedureSpec, id execute.DatasetID, a execute.Administration) (execute.Source, error) {
 	span, ctx := tracing.StartSpanFromContext(a.Context())
 	defer span.Finish()
 
-	spec := s.(*ReadRangePhysSpec)
+	readRangePhysSpec := s.(*ReadRangePhysSpec)
 
 	bounds := a.StreamContext().Bounds()
 	if bounds == nil {
@@ -171,7 +171,7 @@ func createReadFilterSource(s plan.ProcedureSpec, id execute.DatasetID, a execut
 	}
 
 	orgID := req.OrganizationID
-	bucketID, err := spec.LookupBucketID(ctx, orgID, deps.BucketLookup)
+	bucketId, err := readRangePhysSpec.LookupBucketID(ctx, orgID, deps.BucketLookup)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +181,9 @@ func createReadFilterSource(s plan.ProcedureSpec, id execute.DatasetID, a execut
 		deps.Reader,
 		query.ReadFilterSpec{
 			OrganizationID: orgID,
-			BucketID:       bucketID,
+			BucketID:       bucketId,
 			Bounds:         *bounds,
-			Predicate:      spec.Filter,
+			Predicate:      readRangePhysSpec.Filter,
 		},
 		a,
 	), nil

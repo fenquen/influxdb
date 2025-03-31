@@ -65,7 +65,7 @@ func NewReader(s storage.Store) query.StorageReader {
 func (r *storeReader) ReadFilter(ctx context.Context, spec query.ReadFilterSpec, alloc memory.Allocator) (query.TableIterator, error) {
 	return &filterIterator{
 		ctx:   ctx,
-		s:     r.s,
+		store: r.s,
 		spec:  spec,
 		cache: newTagsCache(0),
 		alloc: alloc,
@@ -133,19 +133,19 @@ func (r *storeReader) Close() {}
 
 type filterIterator struct {
 	ctx   context.Context
-	s     storage.Store
+	store storage.Store
 	spec  query.ReadFilterSpec
 	stats cursors.CursorStats
 	cache *tagsCache
 	alloc memory.Allocator
 }
 
-func (fi *filterIterator) Statistics() cursors.CursorStats { return fi.stats }
+func (filterIterator *filterIterator) Statistics() cursors.CursorStats { return filterIterator.stats }
 
-func (fi *filterIterator) Do(f func(flux.Table) error) error {
-	src := fi.s.GetSource(
-		uint64(fi.spec.OrganizationID),
-		uint64(fi.spec.BucketID),
+func (filterIterator *filterIterator) Do(f func(flux.Table) error) error {
+	src := filterIterator.store.GetSource(
+		uint64(filterIterator.spec.OrganizationID),
+		uint64(filterIterator.spec.BucketID),
 	)
 
 	// Setup read request
@@ -156,96 +156,96 @@ func (fi *filterIterator) Do(f func(flux.Table) error) error {
 
 	var req datatypes.ReadFilterRequest
 	req.ReadSource = any
-	req.Predicate = fi.spec.Predicate
+	req.Predicate = filterIterator.spec.Predicate
 	req.Range = &datatypes.TimestampRange{
-		Start: int64(fi.spec.Bounds.Start),
-		End:   int64(fi.spec.Bounds.Stop),
+		Start: int64(filterIterator.spec.Bounds.Start),
+		End:   int64(filterIterator.spec.Bounds.Stop),
 	}
 
-	rs, err := fi.s.ReadFilter(fi.ctx, &req)
+	resultSet, err := filterIterator.store.ReadFilter(filterIterator.ctx, &req)
 	if err != nil {
 		return err
 	}
 
-	if rs == nil {
+	if resultSet == nil {
 		return nil
 	}
 
-	return fi.handleRead(f, rs)
+	return filterIterator.handleRead(f, resultSet)
 }
 
-func (fi *filterIterator) handleRead(f func(flux.Table) error, rs storage.ResultSet) error {
+func (filterIterator *filterIterator) handleRead(f func(flux.Table) error, resultSet storage.ResultSet) error {
 	// these resources must be closed if not nil on return
 	var (
-		cur   cursors.Cursor
-		table storageTable
+		cursor       cursors.Cursor
+		storageTable storageTable
 	)
 
 	defer func() {
-		if table != nil {
-			table.Close()
+		if storageTable != nil {
+			storageTable.Close()
 		}
-		if cur != nil {
-			cur.Close()
+		if cursor != nil {
+			cursor.Close()
 		}
-		rs.Close()
-		fi.cache.Release()
+		resultSet.Close()
+		filterIterator.cache.Release()
 	}()
 
 READ:
-	for rs.Next() {
-		cur = rs.Cursor()
-		if cur == nil {
+	for resultSet.Next() {
+		cursor = resultSet.Cursor()
+		if cursor == nil {
 			// no data for series key + field combination
 			continue
 		}
 
-		bnds := fi.spec.Bounds
-		key := defaultGroupKeyForSeries(rs.Tags(), bnds)
+		bounds := filterIterator.spec.Bounds
+		key := defaultGroupKeyForSeries(resultSet.Tags(), bounds)
 		done := make(chan struct{})
-		switch typedCur := cur.(type) {
+		switch typedCur := cursor.(type) {
 		case cursors.IntegerArrayCursor:
-			cols, defs := determineTableColsForSeries(rs.Tags(), flux.TInt)
-			table = newIntegerTable(done, typedCur, bnds, key, cols, rs.Tags(), defs, fi.cache, fi.alloc)
+			cols, defs := determineTableColsForSeries(resultSet.Tags(), flux.TInt)
+			storageTable = newIntegerTable(done, typedCur, bounds, key, cols, resultSet.Tags(), defs, filterIterator.cache, filterIterator.alloc)
 		case cursors.FloatArrayCursor:
-			cols, defs := determineTableColsForSeries(rs.Tags(), flux.TFloat)
-			table = newFloatTable(done, typedCur, bnds, key, cols, rs.Tags(), defs, fi.cache, fi.alloc)
+			cols, defs := determineTableColsForSeries(resultSet.Tags(), flux.TFloat)
+			storageTable = newFloatTable(done, typedCur, bounds, key, cols, resultSet.Tags(), defs, filterIterator.cache, filterIterator.alloc)
 		case cursors.UnsignedArrayCursor:
-			cols, defs := determineTableColsForSeries(rs.Tags(), flux.TUInt)
-			table = newUnsignedTable(done, typedCur, bnds, key, cols, rs.Tags(), defs, fi.cache, fi.alloc)
+			cols, defs := determineTableColsForSeries(resultSet.Tags(), flux.TUInt)
+			storageTable = newUnsignedTable(done, typedCur, bounds, key, cols, resultSet.Tags(), defs, filterIterator.cache, filterIterator.alloc)
 		case cursors.BooleanArrayCursor:
-			cols, defs := determineTableColsForSeries(rs.Tags(), flux.TBool)
-			table = newBooleanTable(done, typedCur, bnds, key, cols, rs.Tags(), defs, fi.cache, fi.alloc)
+			cols, defs := determineTableColsForSeries(resultSet.Tags(), flux.TBool)
+			storageTable = newBooleanTable(done, typedCur, bounds, key, cols, resultSet.Tags(), defs, filterIterator.cache, filterIterator.alloc)
 		case cursors.StringArrayCursor:
-			cols, defs := determineTableColsForSeries(rs.Tags(), flux.TString)
-			table = newStringTable(done, typedCur, bnds, key, cols, rs.Tags(), defs, fi.cache, fi.alloc)
+			cols, defs := determineTableColsForSeries(resultSet.Tags(), flux.TString)
+			storageTable = newStringTable(done, typedCur, bounds, key, cols, resultSet.Tags(), defs, filterIterator.cache, filterIterator.alloc)
 		default:
 			panic(fmt.Sprintf("unreachable: %T", typedCur))
 		}
 
-		cur = nil
+		cursor = nil
 
-		if !table.Empty() {
-			if err := f(table); err != nil {
-				table.Close()
-				table = nil
+		if !storageTable.Empty() {
+			if err := f(storageTable); err != nil {
+				storageTable.Close()
+				storageTable = nil
 				return err
 			}
 			select {
 			case <-done:
-			case <-fi.ctx.Done():
-				table.Cancel()
+			case <-filterIterator.ctx.Done():
+				storageTable.Cancel()
 				break READ
 			}
 		}
 
-		stats := table.Statistics()
-		fi.stats.ScannedValues += stats.ScannedValues
-		fi.stats.ScannedBytes += stats.ScannedBytes
-		table.Close()
-		table = nil
+		stats := storageTable.Statistics()
+		filterIterator.stats.ScannedValues += stats.ScannedValues
+		filterIterator.stats.ScannedBytes += stats.ScannedBytes
+		storageTable.Close()
+		storageTable = nil
 	}
-	return rs.Err()
+	return resultSet.Err()
 }
 
 type groupIterator struct {

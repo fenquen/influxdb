@@ -791,7 +791,7 @@ func (engine *Engine) WithLogger(log *zap.Logger) {
 	engine.FileStore.WithLogger(engine.logger)
 }
 
-// LoadMetadataIndex loads the shard metadata into memory.
+// loads the shard metadata into memory.
 //
 // Note, it not safe to call LoadMetadataIndex concurrently. LoadMetadataIndex
 // should only be called when initialising a new Engine.

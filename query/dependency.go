@@ -16,18 +16,18 @@ func FromBucketService(srv influxdb.BucketService) *BucketLookup {
 	}
 }
 
-// BucketLookup converts Flux bucket lookups into influxdb.BucketService calls.
+// convert Flux bucket lookups into influxdb.BucketService calls.
 type BucketLookup struct {
 	BucketService influxdb.BucketService
 }
 
-// Lookup returns the bucket id and its existence given an org id and bucket name.
-func (b *BucketLookup) Lookup(ctx context.Context, orgID platform.ID, name string) (platform.ID, bool) {
-	filter := influxdb.BucketFilter{
+// returns the bucket id and its existence given an org id and bucket name.
+func (b *BucketLookup) Lookup(ctx context.Context, orgID platform.ID, bucketName string) (platform.ID, bool) {
+	bucketFilter := influxdb.BucketFilter{
 		OrganizationID: &orgID,
-		Name:           &name,
+		Name:           &bucketName,
 	}
-	bucket, err := b.BucketService.FindBucket(ctx, filter)
+	bucket, err := b.BucketService.FindBucket(ctx, bucketFilter) // bucketService包裹了很多的层 支持log的,支持metric的,BucketSvc
 	if err != nil {
 		return platform.InvalidID(), false
 	}

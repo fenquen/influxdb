@@ -78,13 +78,13 @@ var (
 	OpDeleteBucket   = "DeleteBucket"
 )
 
-// BucketService represents a service for managing bucket data.
+// represent a service for managing bucket data.
 type BucketService interface {
 	// FindBucketByID returns a single bucket by ID.
 	FindBucketByID(ctx context.Context, id platform.ID) (*Bucket, error)
 
 	// returns the first bucket that matches filter.
-	FindBucket(ctx context.Context, filter BucketFilter) (*Bucket, error)
+	FindBucket(ctx context.Context, bucketFilter BucketFilter) (*Bucket, error)
 
 	// FindBuckets returns a list of buckets that match filter and the total count of matching buckets.
 	// Additional options provide pagination & sorting.

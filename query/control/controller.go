@@ -405,7 +405,7 @@ func (controller *Controller) enqueueQuery(query *Query) error {
 		}
 	}
 
-	if controller.queryQueue == nil { // ConcurrencyQuota / QueueSize  如果是0那么这样 它们默认都是1024的
+	if controller.queryQueue == nil { // ConcurrencyQuota(有多少的goroutine处理队列内容)/QueueSize  如果是0那么这样 它们默认都是1024的
 		// unlimited queries case
 		controller.queriesMu.RLock()
 		defer controller.queriesMu.RUnlock()
@@ -485,7 +485,7 @@ func (controller *Controller) executeQuery(query *Query) {
 	query.controller.createAllocator(query)
 	// Record unused memory before start.
 	query.recordUnusedMemory()
-	fluxQuery, err := query.program.Start(ctx, query.alloc)
+	fluxQuery, err := query.program.Start(ctx, query.memResAllocator)
 	if err != nil {
 		query.setErr(err)
 		return
@@ -627,9 +627,9 @@ type Query struct {
 	fluxResultChan chan flux.Result
 	compiler       flux.Compiler
 
-	memoryManager *queryMemoryManager
-	alloc         *memory.ResourceAllocator
-	deps          *dependency.Span
+	memoryManager   *queryMemoryManager
+	memResAllocator *memory.ResourceAllocator
+	deps            *dependency.Span
 }
 
 func (q *Query) ProfilerResults() (flux.ResultIterator, error) {
@@ -639,7 +639,7 @@ func (q *Query) ProfilerResults() (flux.ResultIterator, error) {
 	}
 	tables := make([]flux.Table, 0)
 	for _, profiler := range p.Profilers {
-		if result, err := profiler.GetResult(q, q.alloc); err != nil {
+		if result, err := profiler.GetResult(q, q.memResAllocator); err != nil {
 			return nil, err
 		} else {
 			tables = append(tables, result)
@@ -773,8 +773,8 @@ func (q *Query) mergeQueryStats(other flux.Statistics) {
 // the query has been finalized unless a context is given.
 func (q *Query) Statistics() flux.Statistics {
 	stats := q.stats
-	if q.alloc != nil {
-		stats.MaxAllocated = q.alloc.MaxAllocated()
+	if q.memResAllocator != nil {
+		stats.MaxAllocated = q.memResAllocator.MaxAllocated()
 	}
 	return stats
 }

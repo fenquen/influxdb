@@ -602,25 +602,25 @@ func (client *Client) ShardIDs() []uint64 {
 
 // ShardGroupsByTimeRange returns a list of all shard groups on a database and policy that may contain data
 // for the specified time range. Shard groups are sorted by start time.
-func (client *Client) ShardGroupsByTimeRange(database, policy string, min, max time.Time) (a []ShardGroupInfo, err error) {
+func (client *Client) ShardGroupsByTimeRange(database, policy string, min, max time.Time) ([]ShardGroupInfo, error) {
 	client.mu.RLock()
 	defer client.mu.RUnlock()
 
 	// Find retention policy.
-	rpi, err := client.cacheData.GetRetentionPolicyInfo(database, policy)
+	retentionPolicyInfo, err := client.cacheData.GetRetentionPolicyInfo(database, policy)
 	if err != nil {
 		return nil, err
-	} else if rpi == nil {
+	} else if retentionPolicyInfo == nil {
 		return nil, influxdb.ErrRetentionPolicyNotFound(policy)
 	}
-	groups := make([]ShardGroupInfo, 0, len(rpi.ShardGroupInfos))
-	for _, g := range rpi.ShardGroupInfos {
-		if g.Deleted() || !g.Overlaps(min, max) {
+	shardGroupInfos := make([]ShardGroupInfo, 0, len(retentionPolicyInfo.ShardGroupInfos))
+	for _, shardGroupInfo := range retentionPolicyInfo.ShardGroupInfos {
+		if shardGroupInfo.Deleted() || !shardGroupInfo.Overlaps(min, max) {
 			continue
 		}
-		groups = append(groups, g)
+		shardGroupInfos = append(shardGroupInfos, shardGroupInfo)
 	}
-	return groups, nil
+	return shardGroupInfos, nil
 }
 
 // ShardsByTimeRange returns a slice of shards that may contain data in the time range.

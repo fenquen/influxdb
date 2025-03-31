@@ -101,21 +101,21 @@ func newMultiShardArrayCursors(ctx context.Context, start, end int64, asc bool) 
 	return m
 }
 
-func (m *multiShardArrayCursors) createCursor(row SeriesRow) cursors.Cursor {
-	m.req.Name = row.Name
-	m.req.Tags = row.SeriesTags
-	m.req.Field = row.Field
+func (multiShardArrayCursors *multiShardArrayCursors) createCursor(seriesRow SeriesRow) cursors.Cursor {
+	multiShardArrayCursors.req.Name = seriesRow.Name
+	multiShardArrayCursors.req.Tags = seriesRow.SeriesTags
+	multiShardArrayCursors.req.Field = seriesRow.Field
 
 	var cond expression
-	if row.ValueCond != nil {
-		cond = &astExpr{row.ValueCond}
+	if seriesRow.ValueCond != nil {
+		cond = &astExpr{seriesRow.ValueCond}
 	}
 
 	var shard cursors.CursorIterator
 	var cur cursors.Cursor
-	for cur == nil && len(row.Query) > 0 {
-		shard, row.Query = row.Query[0], row.Query[1:]
-		cur, _ = shard.Next(m.ctx, &m.req)
+	for cur == nil && len(seriesRow.Query) > 0 {
+		shard, seriesRow.Query = seriesRow.Query[0], seriesRow.Query[1:]
+		cur, _ = shard.Next(multiShardArrayCursors.ctx, &multiShardArrayCursors.req)
 	}
 
 	if cur == nil {
@@ -124,20 +124,20 @@ func (m *multiShardArrayCursors) createCursor(row SeriesRow) cursors.Cursor {
 
 	switch c := cur.(type) {
 	case cursors.IntegerArrayCursor:
-		m.cursors.i.reset(c, row.Query, cond)
-		return &m.cursors.i
+		multiShardArrayCursors.cursors.i.reset(c, seriesRow.Query, cond)
+		return &multiShardArrayCursors.cursors.i
 	case cursors.FloatArrayCursor:
-		m.cursors.f.reset(c, row.Query, cond)
-		return &m.cursors.f
+		multiShardArrayCursors.cursors.f.reset(c, seriesRow.Query, cond)
+		return &multiShardArrayCursors.cursors.f
 	case cursors.UnsignedArrayCursor:
-		m.cursors.u.reset(c, row.Query, cond)
-		return &m.cursors.u
+		multiShardArrayCursors.cursors.u.reset(c, seriesRow.Query, cond)
+		return &multiShardArrayCursors.cursors.u
 	case cursors.StringArrayCursor:
-		m.cursors.s.reset(c, row.Query, cond)
-		return &m.cursors.s
+		multiShardArrayCursors.cursors.s.reset(c, seriesRow.Query, cond)
+		return &multiShardArrayCursors.cursors.s
 	case cursors.BooleanArrayCursor:
-		m.cursors.b.reset(c, row.Query, cond)
-		return &m.cursors.b
+		multiShardArrayCursors.cursors.b.reset(c, seriesRow.Query, cond)
+		return &multiShardArrayCursors.cursors.b
 	default:
 		panic(fmt.Sprintf("unreachable: %T", cur))
 	}

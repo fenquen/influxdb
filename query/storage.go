@@ -13,9 +13,9 @@ import (
 	"github.com/influxdata/influxdb/v2/tsdb/cursors"
 )
 
-// StorageReader is an interface for reading tables from the storage subsystem.
+// interface for reading tables from the storage subsystem.
 type StorageReader interface {
-	ReadFilter(ctx context.Context, spec ReadFilterSpec, alloc memory.Allocator) (TableIterator, error)
+	ReadFilter(ctx context.Context, readFilterSpec ReadFilterSpec, alloc memory.Allocator) (TableIterator, error)
 	ReadGroup(ctx context.Context, spec ReadGroupSpec, alloc memory.Allocator) (TableIterator, error)
 	ReadWindowAggregate(ctx context.Context, spec ReadWindowAggregateSpec, alloc memory.Allocator) (TableIterator, error)
 
@@ -89,7 +89,7 @@ func (spec *ReadWindowAggregateSpec) Name() string {
 	return fmt.Sprintf("readWindow(%s)", agg)
 }
 
-// TableIterator is a table iterator that also keeps track of cursor statistics from the storage engine.
+// keeps track of cursor statistics from the storage engine
 type TableIterator interface {
 	flux.TableIterator
 	Statistics() cursors.CursorStats
