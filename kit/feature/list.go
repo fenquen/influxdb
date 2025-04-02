@@ -19,7 +19,7 @@ func AppMetrics() BoolFlag {
 var groupWindowAggregateTranspose = MakeBoolFlag(
 	"Group Window Aggregate Transpose",
 	"groupWindowAggregateTranspose",
-	"Query Team",
+	"CursorIterators Team",
 	false,
 	Temporary,
 	false,
@@ -47,7 +47,7 @@ func NewLabelPackage() BoolFlag {
 var memoryOptimizedFill = MakeBoolFlag(
 	"Memory Optimized Fill",
 	"memoryOptimizedFill",
-	"Query Team",
+	"CursorIterators Team",
 	false,
 	Temporary,
 	false,
@@ -61,7 +61,7 @@ func MemoryOptimizedFill() BoolFlag {
 var memoryOptimizedSchemaMutation = MakeBoolFlag(
 	"Memory Optimized Schema Mutation",
 	"memoryOptimizedSchemaMutation",
-	"Query Team",
+	"CursorIterators Team",
 	false,
 	Temporary,
 	false,
@@ -73,9 +73,9 @@ func MemoryOptimizedSchemaMutation() BoolFlag {
 }
 
 var queryTracing = MakeBoolFlag(
-	"Query Tracing",
+	"CursorIterators Tracing",
 	"queryTracing",
-	"Query Team",
+	"CursorIterators Team",
 	false,
 	Permanent,
 	false,

@@ -1,0 +1,10 @@
+prefix=
+exec_prefix=
+libdir=/home/a/github/libflux/target/debug
+includedir=/home/a/github/libflux/include
+
+Name: flux
+Description: flux
+Version: 1.0.0
+Cflags: -I${includedir}
+Libs: -L${libdir} -lflux

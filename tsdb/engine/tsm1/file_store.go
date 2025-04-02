@@ -172,7 +172,7 @@ type FileStore struct {
 	currentGeneration int
 	dirPath           string // 其实是shard.path file_store.go:232
 
-	tsmFiles        []TSMFile     // 其实是tsmFileReader
+	tsmFileReaders  []TSMFile     // 其实是tsmFileReader
 	tsmMMAPWillNeed bool          // If true then the kernel will be advised MMAP_WILLNEED for TSM files. 对应 storage-tsm-use-madv-willneed
 	openLimiter     limiter.Fixed // limit the number of concurrent opening TSM files.
 
@@ -344,7 +344,7 @@ func newFileStoreMetrics(tags tsdb.EngineTags) *fileStoreMetrics {
 func (fileStore *FileStore) Count() int {
 	fileStore.mu.RLock()
 	defer fileStore.mu.RUnlock()
-	return len(fileStore.tsmFiles)
+	return len(fileStore.tsmFileReaders)
 }
 
 // Files returns the slice of TSM files currently loaded. This is only used for
@@ -352,7 +352,7 @@ func (fileStore *FileStore) Count() int {
 func (fileStore *FileStore) Files() []TSMFile {
 	fileStore.mu.RLock()
 	defer fileStore.mu.RUnlock()
-	return fileStore.tsmFiles
+	return fileStore.tsmFileReaders
 }
 
 // Free releases any resources held by the FileStore.  The resources will be re-acquired
@@ -360,7 +360,7 @@ func (fileStore *FileStore) Files() []TSMFile {
 func (fileStore *FileStore) Free() error {
 	fileStore.mu.RLock()
 	defer fileStore.mu.RUnlock()
-	for _, f := range fileStore.tsmFiles {
+	for _, f := range fileStore.tsmFileReaders {
 		if err := f.Free(); err != nil {
 			return err
 		}
@@ -387,18 +387,18 @@ func (fileStore *FileStore) NextGeneration() int {
 // exists in multiple files, it will be invoked for each file.
 func (fileStore *FileStore) WalkKeys(seek []byte, fn func(key []byte, typ byte) error) error {
 	fileStore.mu.RLock()
-	if len(fileStore.tsmFiles) == 0 {
+	if len(fileStore.tsmFileReaders) == 0 {
 		fileStore.mu.RUnlock()
 		return nil
 	}
 
 	// Ensure files are not unmapped while we're iterating over them.
-	for _, r := range fileStore.tsmFiles {
+	for _, r := range fileStore.tsmFileReaders {
 		r.Ref()
 		defer r.Unref()
 	}
 
-	ki := newMergeKeyIterator(fileStore.tsmFiles, seek)
+	ki := newMergeKeyIterator(fileStore.tsmFileReaders, seek)
 	fileStore.mu.RUnlock()
 	for ki.Next() {
 		key, typ := ki.Read()
@@ -431,7 +431,7 @@ func (fileStore *FileStore) Type(key []byte) (byte, error) {
 	fileStore.mu.RLock()
 	defer fileStore.mu.RUnlock()
 
-	for _, f := range fileStore.tsmFiles {
+	for _, f := range fileStore.tsmFileReaders {
 		if f.Contains(key) {
 			return f.Type(key)
 		}
@@ -449,9 +449,9 @@ func (fileStore *FileStore) Apply(ctx context.Context, fn func(r TSMFile) error)
 	limiter := limiter.NewFixed(runtime.GOMAXPROCS(0))
 
 	fileStore.mu.RLock()
-	errC := make(chan error, len(fileStore.tsmFiles))
+	errC := make(chan error, len(fileStore.tsmFileReaders))
 
-	for _, f := range fileStore.tsmFiles {
+	for _, f := range fileStore.tsmFileReaders {
 		go func(r TSMFile) {
 			if err := limiter.Take(ctx); err != nil {
 				errC <- err
@@ -486,7 +486,7 @@ func (fileStore *FileStore) Apply(ctx context.Context, fn func(r TSMFile) error)
 func (fileStore *FileStore) DeleteRange(keys [][]byte, min, max int64) error {
 	var batches BatchDeleters
 	fileStore.mu.RLock()
-	for _, f := range fileStore.tsmFiles {
+	for _, f := range fileStore.tsmFileReaders {
 		if f.OverlapsTimeRange(min, max) {
 			batches = append(batches, f.BatchDelete())
 		}
@@ -566,7 +566,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 
 	// struct to hold the result of opening each reader in a goroutine
 	type res struct {
-		tsmReader *TSMReader
+		tsmReader *TsmFileReader
 		err       error
 	}
 
@@ -599,7 +599,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 			defer fileStore.openLimiter.Release()
 
 			start := time.Now()
-			tsmReader, err := NewTSMReader(tsmFile, WithMadviseWillNeed(fileStore.tsmMMAPWillNeed))
+			tsmReader, err := NewTsmFileReader(tsmFile, WithMadviseWillNeed(fileStore.tsmMMAPWillNeed))
 			fileStore.logger.Info("Opened file",
 				zap.String("path", tsmFile.Name()),
 				zap.Int("id", idx),
@@ -633,7 +633,7 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 		} else if res.tsmReader == nil {
 			continue
 		}
-		fileStore.tsmFiles = append(fileStore.tsmFiles, res.tsmReader)
+		fileStore.tsmFileReaders = append(fileStore.tsmFileReaders, res.tsmReader)
 
 		// Accumulate file store size stats
 		fileStore.stats.AddSize(int64(res.tsmReader.Size()))
@@ -659,8 +659,8 @@ func (fileStore *FileStore) Open(ctx context.Context) error {
 	}
 	close(readerC)
 
-	sort.Sort(tsmReaders(fileStore.tsmFiles))
-	fileStore.stats.SetFiles(int64(len(fileStore.tsmFiles)))
+	sort.Sort(tsmReaders(fileStore.tsmFileReaders))
+	fileStore.stats.SetFiles(int64(len(fileStore.tsmFileReaders)))
 	return nil
 }
 
@@ -669,10 +669,10 @@ func (fileStore *FileStore) Close() error {
 	// Make the object appear closed to other method calls.
 	fileStore.mu.Lock()
 
-	files := fileStore.tsmFiles
+	files := fileStore.tsmFileReaders
 
 	fileStore.lastFileStats = nil
-	fileStore.tsmFiles = nil
+	fileStore.tsmFileReaders = nil
 
 	fileStore.stats.SetFiles(0)
 
@@ -699,7 +699,7 @@ func (fileStore *FileStore) Read(key []byte, t int64) ([]Value, error) {
 	fileStore.mu.RLock()
 	defer fileStore.mu.RUnlock()
 
-	for _, f := range fileStore.tsmFiles {
+	for _, f := range fileStore.tsmFileReaders {
 		// Can this file possibly contain this key and timestamp?
 		if !f.Contains(key) {
 			continue
@@ -727,13 +727,13 @@ func (fileStore *FileStore) Cost(key []byte, min, max int64) query.IteratorCost 
 // Reader returns a TSMReader for path if one is currently managed by the FileStore.
 // Otherwise it returns nil. If it returns a file, you must call Unref on it when
 // you are done, and never use it after that.
-func (fileStore *FileStore) TSMReader(path string) *TSMReader {
+func (fileStore *FileStore) TSMReader(path string) *TsmFileReader {
 	fileStore.mu.RLock()
 	defer fileStore.mu.RUnlock()
-	for _, r := range fileStore.tsmFiles {
+	for _, r := range fileStore.tsmFileReaders {
 		if r.Path() == path {
 			r.Ref()
-			return r.(*TSMReader)
+			return r.(*TsmFileReader)
 		}
 	}
 	return nil
@@ -766,11 +766,11 @@ func (fileStore *FileStore) Stats() []FileStat {
 
 	// If lastFileStats's capacity is far away from the number of entries
 	// we need to add, then we'll reallocate.
-	if cap(fileStore.lastFileStats) < len(fileStore.tsmFiles)/2 {
-		fileStore.lastFileStats = make([]FileStat, 0, len(fileStore.tsmFiles))
+	if cap(fileStore.lastFileStats) < len(fileStore.tsmFileReaders)/2 {
+		fileStore.lastFileStats = make([]FileStat, 0, len(fileStore.tsmFileReaders))
 	}
 
-	for _, fd := range fileStore.tsmFiles {
+	for _, fd := range fileStore.tsmFileReaders {
 		fileStore.lastFileStats = append(fileStore.lastFileStats, fd.Stats())
 	}
 	return fileStore.lastFileStats
@@ -839,7 +839,7 @@ func (fileStore *FileStore) replace(oldFiles, newFiles []string, updatedFn func(
 			}
 		}
 
-		tsm, err := NewTSMReader(fd, WithMadviseWillNeed(fileStore.tsmMMAPWillNeed))
+		tsmFileReader, err := NewTsmFileReader(fd, WithMadviseWillNeed(fileStore.tsmMMAPWillNeed))
 		if err != nil {
 			if newName != oldName {
 				if err1 := os.Rename(newName, oldName); err1 != nil {
@@ -848,9 +848,9 @@ func (fileStore *FileStore) replace(oldFiles, newFiles []string, updatedFn func(
 			}
 			return err
 		}
-		tsm.WithObserver(fileStore.obs)
+		tsmFileReader.WithObserver(fileStore.obs)
 
-		updated = append(updated, tsm)
+		updated = append(updated, tsmFileReader)
 	}
 
 	if updatedFn != nil {
@@ -865,7 +865,7 @@ func (fileStore *FileStore) replace(oldFiles, newFiles []string, updatedFn func(
 	// the time that locks are held as well as to ensure that the replacement
 	// is atomic.©
 
-	updated = append(updated, fileStore.tsmFiles...)
+	updated = append(updated, fileStore.tsmFileReaders...)
 
 	// We need to prune our set of active files now
 	var active, inuse []TSMFile
@@ -954,13 +954,13 @@ func (fileStore *FileStore) replace(oldFiles, newFiles []string, updatedFn func(
 	fileStore.lastModified = maxTime.UTC()
 
 	fileStore.lastFileStats = nil
-	fileStore.tsmFiles = active
-	sort.Sort(tsmReaders(fileStore.tsmFiles))
-	fileStore.stats.SetFiles(int64(len(fileStore.tsmFiles)))
+	fileStore.tsmFileReaders = active
+	sort.Sort(tsmReaders(fileStore.tsmFileReaders))
+	fileStore.stats.SetFiles(int64(len(fileStore.tsmFileReaders)))
 
 	// Recalculate the disk size stat
 	var totalSize int64
-	for _, file := range fileStore.tsmFiles {
+	for _, file := range fileStore.tsmFileReaders {
 		totalSize += int64(file.Size())
 		if ts := file.TombstoneStats(); ts.TombstoneExists {
 			totalSize += int64(ts.Size)
@@ -992,7 +992,7 @@ func (fileStore *FileStore) BlockCount(path string, idx int) int {
 		return 0
 	}
 
-	for _, fd := range fileStore.tsmFiles {
+	for _, fd := range fileStore.tsmFileReaders {
 		if fd.Path() == path {
 			iter := fd.BlockIterator()
 			for i := 0; i < idx; i++ {
@@ -1014,7 +1014,7 @@ func (fileStore *FileStore) BlockCount(path string, idx int) int {
 func (fileStore *FileStore) cost(key []byte, min, max int64) query.IteratorCost {
 	var cache []IndexEntry
 	cost := query.IteratorCost{}
-	for _, fd := range fileStore.tsmFiles {
+	for _, fd := range fileStore.tsmFileReaders {
 		minTime, maxTime := fd.TimeRange()
 		if !(maxTime > min && minTime < max) {
 			continue
@@ -1054,10 +1054,10 @@ func (fileStore *FileStore) cost(key []byte, min, max int64) query.IteratorCost 
 // whether the key will be scan in ascending time order or descenging time order.
 // This function assumes the read-lock has been taken.
 func (fileStore *FileStore) locations(key []byte, t int64, ascending bool) []*location {
-	var cache []IndexEntry
-	locations := make([]*location, 0, len(fileStore.tsmFiles))
-	for _, fd := range fileStore.tsmFiles {
-		minTime, maxTime := fd.TimeRange()
+	var cachedIndexEntries []IndexEntry
+	locations := make([]*location, 0, len(fileStore.tsmFileReaders))
+	for _, tsmFile := range fileStore.tsmFileReaders {
+		minTime, maxTime := tsmFile.TimeRange()
 
 		// If we ascending and the max time of the file is before where we want to start
 		// skip it.
@@ -1068,35 +1068,35 @@ func (fileStore *FileStore) locations(key []byte, t int64, ascending bool) []*lo
 		} else if !ascending && minTime > t {
 			continue
 		}
-		tombstones := fd.TombstoneRange(key)
+		tombstones := tsmFile.TombstoneRange(key)
 
 		// This file could potential contain points we are looking for so find the blocks for
 		// the given key.
-		entries := fd.ReadEntries(key, &cache)
+		entries := tsmFile.ReadEntries(key, &cachedIndexEntries)
 	LOOP:
 		for i := 0; i < len(entries); i++ {
-			ie := entries[i]
+			indexEntry := entries[i]
 
 			// Skip any blocks only contain values that are tombstoned.
 			for _, t := range tombstones {
-				if t.Min <= ie.MinTime && t.Max >= ie.MaxTime {
+				if t.Min <= indexEntry.MinTime && t.Max >= indexEntry.MaxTime {
 					continue LOOP
 				}
 			}
 
 			// If we ascending and the max time of a block is before where we are looking, skip
 			// it since the data is out of our range
-			if ascending && ie.MaxTime < t {
+			if ascending && indexEntry.MaxTime < t {
 				continue
 				// If we descending and the min time of a block is after where we are looking, skip
 				// it since the data is out of our range
-			} else if !ascending && ie.MinTime > t {
+			} else if !ascending && indexEntry.MinTime > t {
 				continue
 			}
 
 			location := &location{
-				r:     fd,
-				entry: ie,
+				tsmFile:    tsmFile,
+				indexEntry: indexEntry,
 			}
 
 			if ascending {
@@ -1220,8 +1220,8 @@ func (fileStore *FileStore) CreateSnapshot() (string, error) {
 	fileStore.mu.Lock()
 	// create a copy of the files slice and ensure they aren't closed out from
 	// under us, nor the slice mutated.
-	files := make([]TSMFile, len(fileStore.tsmFiles))
-	copy(files, fileStore.tsmFiles)
+	files := make([]TSMFile, len(fileStore.tsmFileReaders))
+	copy(files, fileStore.tsmFileReaders)
 
 	for _, tsmf := range files {
 		tsmf.Ref()
@@ -1312,14 +1312,14 @@ type KeyCursor struct {
 }
 
 type location struct {
-	r     TSMFile
-	entry IndexEntry
+	tsmFile    TSMFile
+	indexEntry IndexEntry
 
 	readMin, readMax int64
 }
 
 func (l *location) read() bool {
-	return l.readMin <= l.entry.MinTime && l.readMax >= l.entry.MaxTime
+	return l.readMin <= l.indexEntry.MinTime && l.readMax >= l.indexEntry.MaxTime
 }
 
 func (l *location) markRead(min, max int64) {
@@ -1338,10 +1338,10 @@ type descLocations []*location
 func (a descLocations) Len() int      { return len(a) }
 func (a descLocations) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a descLocations) Less(i, j int) bool {
-	if a[i].entry.OverlapsTimeRange(a[j].entry.MinTime, a[j].entry.MaxTime) {
-		return a[i].r.Path() < a[j].r.Path()
+	if a[i].indexEntry.OverlapsTimeRange(a[j].indexEntry.MinTime, a[j].indexEntry.MaxTime) {
+		return a[i].tsmFile.Path() < a[j].tsmFile.Path()
 	}
-	return a[i].entry.MaxTime < a[j].entry.MaxTime
+	return a[i].indexEntry.MaxTime < a[j].indexEntry.MaxTime
 }
 
 type ascLocations []*location
@@ -1350,43 +1350,43 @@ type ascLocations []*location
 func (a ascLocations) Len() int      { return len(a) }
 func (a ascLocations) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a ascLocations) Less(i, j int) bool {
-	if a[i].entry.OverlapsTimeRange(a[j].entry.MinTime, a[j].entry.MaxTime) {
-		return a[i].r.Path() < a[j].r.Path()
+	if a[i].indexEntry.OverlapsTimeRange(a[j].indexEntry.MinTime, a[j].indexEntry.MaxTime) {
+		return a[i].tsmFile.Path() < a[j].tsmFile.Path()
 	}
-	return a[i].entry.MinTime < a[j].entry.MinTime
+	return a[i].indexEntry.MinTime < a[j].indexEntry.MinTime
 }
 
 // newKeyCursor returns a new instance of KeyCursor.
 // This function assumes the read-lock has been taken.
-func newKeyCursor(ctx context.Context, fs *FileStore, key []byte, t int64, ascending bool) *KeyCursor {
-	c := &KeyCursor{
+func newKeyCursor(ctx context.Context, fileStore *FileStore, key []byte, t int64, ascending bool) *KeyCursor {
+	keyCursor := &KeyCursor{
 		key:       key,
-		seeks:     fs.locations(key, t, ascending),
+		seeks:     fileStore.locations(key, t, ascending),
 		ctx:       ctx,
 		col:       metrics.GroupFromContext(ctx),
 		ascending: ascending,
 	}
 
 	if ascending {
-		sort.Sort(ascLocations(c.seeks))
+		sort.Sort(ascLocations(keyCursor.seeks))
 	} else {
-		sort.Sort(descLocations(c.seeks))
+		sort.Sort(descLocations(keyCursor.seeks))
 	}
 
 	// Determine the distinct set of TSM files in use and mark then as in-use
-	for _, f := range c.seeks {
-		f.r.Ref()
+	for _, f := range keyCursor.seeks {
+		f.tsmFile.Ref()
 	}
 
-	c.seek(t)
-	return c
+	keyCursor.seek(t)
+	return keyCursor
 }
 
 // Close removes all references on the cursor.
 func (c *KeyCursor) Close() {
 	// Remove all of our in-use references since we're done
 	for _, f := range c.seeks {
-		f.r.Unref()
+		f.tsmFile.Unref()
 	}
 
 	c.buf = nil
@@ -1410,7 +1410,7 @@ func (c *KeyCursor) seek(t int64) {
 
 func (c *KeyCursor) seekAscending(t int64) {
 	for i, e := range c.seeks {
-		if t < e.entry.MinTime || e.entry.Contains(t) {
+		if t < e.indexEntry.MinTime || e.indexEntry.Contains(t) {
 			// Record the position of the first block matching our seek time
 			if len(c.current) == 0 {
 				c.pos = i
@@ -1424,7 +1424,7 @@ func (c *KeyCursor) seekAscending(t int64) {
 func (c *KeyCursor) seekDescending(t int64) {
 	for i := len(c.seeks) - 1; i >= 0; i-- {
 		e := c.seeks[i]
-		if t > e.entry.MaxTime || e.entry.Contains(t) {
+		if t > e.indexEntry.MaxTime || e.indexEntry.Contains(t) {
 			// Record the position of the first block matching our seek time
 			if len(c.current) == 0 {
 				c.pos = i

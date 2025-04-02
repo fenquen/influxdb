@@ -125,7 +125,7 @@ func (a *args) Run(cmd *cobra.Command) error {
 		}
 
 		loadStart := time.Now()
-		reader, err := tsm1.NewTSMReader(file)
+		reader, err := tsm1.NewTsmFileReader(file)
 		if err != nil {
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "error reading %q, skipping: %v\n", file.Name(), err)
 			return nil

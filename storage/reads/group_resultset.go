@@ -283,7 +283,7 @@ func (c *groupNoneCursor) Tags() models.Tags          { return c.row.Tags }
 func (c *groupNoneCursor) Keys() [][]byte             { return c.keys }
 func (c *groupNoneCursor) PartitionKeyVals() [][]byte { return nil }
 func (c *groupNoneCursor) Close()                     { c.cur.Close() }
-func (c *groupNoneCursor) Stats() cursors.CursorStats { return c.row.Query.Stats() }
+func (c *groupNoneCursor) Stats() cursors.CursorStats { return c.row.CursorIterators.Stats() }
 
 func (c *groupNoneCursor) Aggregate() *datatypes.Aggregate {
 	return c.agg
@@ -364,7 +364,7 @@ func (c *groupByCursor) Cursor() cursors.Cursor {
 func (c *groupByCursor) Stats() cursors.CursorStats {
 	var stats cursors.CursorStats
 	for _, seriesRow := range c.seriesRows {
-		stats.Add(seriesRow.Query.Stats())
+		stats.Add(seriesRow.CursorIterators.Stats())
 	}
 	return stats
 }

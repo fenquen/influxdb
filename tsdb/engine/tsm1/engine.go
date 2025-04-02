@@ -946,7 +946,7 @@ func (engine *Engine) timeStampFilterTarFile(start, end time.Time) func(f os.Fil
 		if err != nil {
 			return err
 		}
-		r, err := NewTSMReader(f)
+		r, err := NewTsmFileReader(f)
 		if err != nil {
 			return err
 		}
@@ -1000,7 +1000,7 @@ func (engine *Engine) Export(w io.Writer, basePath string, start time.Time, end 
 	return intar.Stream(w, path, basePath, engine.timeStampFilterTarFile(start, end))
 }
 
-func (engine *Engine) filterFileToBackup(r *TSMReader, fi os.FileInfo, shardRelativePath, fullPath string, start, end int64, tw *tar.Writer) error {
+func (engine *Engine) filterFileToBackup(r *TsmFileReader, fi os.FileInfo, shardRelativePath, fullPath string, start, end int64, tw *tar.Writer) error {
 	path := fullPath + ".tmp"
 	out, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
@@ -1133,7 +1133,7 @@ func (engine *Engine) overlay(r io.Reader, basePath string, asNew bool) error {
 			return err
 		}
 
-		r, err := NewTSMReader(fd)
+		r, err := NewTsmFileReader(fd)
 		if err != nil {
 			return err
 		}
@@ -1916,7 +1916,7 @@ func (engine *Engine) writeSnapshotAndCommit(log *zap.Logger, closedSegmentFileP
 	}()
 
 	// write the new snapshot files
-	newFiles, err := engine.Compactor.WriteSnapshot(cacheSnapshot, engine.logger)
+	newTsmFilePaths, err := engine.Compactor.WriteSnapshot(cacheSnapshot, engine.logger)
 	if err != nil {
 		log.Info("Error writing snapshot from compactor", zap.Error(err))
 		return err
@@ -1926,11 +1926,11 @@ func (engine *Engine) writeSnapshotAndCommit(log *zap.Logger, closedSegmentFileP
 	defer engine.mu.RUnlock()
 
 	// update the file store with these new files
-	if err = engine.FileStore.Replace(nil, newFiles); err != nil {
+	if err = engine.FileStore.Replace(nil, newTsmFilePaths); err != nil {
 		log.Info("Error adding new TSM files from snapshot. Removing temp files.", zap.Error(err))
 
 		// Remove the new snapshot files. We will try again.
-		for _, newFile := range newFiles {
+		for _, newFile := range newTsmFilePaths {
 			if err := os.Remove(newFile); err != nil {
 				log.Info("Unable to remove file", zap.String("path", newFile), zap.Error(err))
 			}

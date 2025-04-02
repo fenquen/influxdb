@@ -75,7 +75,7 @@ func (a *args) process(cmd *cobra.Command, path string) error {
 		return fmt.Errorf("%s is not a TSM file", path)
 	}
 
-	r, err := tsm1.NewTSMReader(input)
+	r, err := tsm1.NewTsmFileReader(input)
 	if err != nil {
 		return fmt.Errorf("unable to read TSM file %q: %w", path, err)
 	}

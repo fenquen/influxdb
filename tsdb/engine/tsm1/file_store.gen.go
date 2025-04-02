@@ -14,20 +14,20 @@ LOOP:
 	first := c.current[0]
 	*buf = (*buf)[:0]
 	var values FloatValues
-	values, err := first.r.ReadFloatBlockAt(&first.entry, buf)
+	values, err := first.tsmFile.ReadFloatBlockAt(&first.indexEntry, buf)
 	if err != nil {
 		return nil, err
 	}
 	if c.col != nil {
 		c.col.GetCounter(floatBlocksDecodedCounter).Add(1)
-		c.col.GetCounter(floatBlocksSizeCounter).Add(int64(first.entry.Size))
+		c.col.GetCounter(floatBlocksSizeCounter).Add(int64(first.indexEntry.Size))
 	}
 
 	// Remove values we already read
 	values = values.Exclude(first.readMin, first.readMax)
 
 	// Remove any tombstones
-	tombstones := first.r.TombstoneRange(c.key)
+	tombstones := first.tsmFile.TombstoneRange(c.key)
 	values = excludeTombstonesFloatValues(tombstones, values)
 	// If there are no values in this first block (all tombstoned or previously read) and
 	// we have more potential blocks too search.  Try again.
@@ -55,20 +55,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MinTime < minT && !cur.read() {
-				minT = cur.entry.MinTime
+			if cur.indexEntry.MinTime < minT && !cur.read() {
+				minT = cur.indexEntry.MinTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MaxTime > maxT {
-					maxT = cur.entry.MaxTime
+				if cur.indexEntry.MaxTime > maxT {
+					maxT = cur.indexEntry.MaxTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -80,23 +80,23 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []FloatValue
 			var v FloatValues
-			v, err := cur.r.ReadFloatBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadFloatBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(floatBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(floatBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(floatBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
 
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesFloatValues(tombstones, v)
 
@@ -118,20 +118,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MaxTime > maxT && !cur.read() {
-				maxT = cur.entry.MaxTime
+			if cur.indexEntry.MaxTime > maxT && !cur.read() {
+				maxT = cur.indexEntry.MaxTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MinTime < minT {
-					minT = cur.entry.MinTime
+				if cur.indexEntry.MinTime < minT {
+					minT = cur.indexEntry.MinTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -143,22 +143,22 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []FloatValue
 			var v FloatValues
-			v, err := cur.r.ReadFloatBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadFloatBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(floatBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(floatBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(floatBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesFloatValues(tombstones, v)
 
@@ -200,20 +200,20 @@ LOOP:
 	first := c.current[0]
 	*buf = (*buf)[:0]
 	var values IntegerValues
-	values, err := first.r.ReadIntegerBlockAt(&first.entry, buf)
+	values, err := first.tsmFile.ReadIntegerBlockAt(&first.indexEntry, buf)
 	if err != nil {
 		return nil, err
 	}
 	if c.col != nil {
 		c.col.GetCounter(integerBlocksDecodedCounter).Add(1)
-		c.col.GetCounter(integerBlocksSizeCounter).Add(int64(first.entry.Size))
+		c.col.GetCounter(integerBlocksSizeCounter).Add(int64(first.indexEntry.Size))
 	}
 
 	// Remove values we already read
 	values = values.Exclude(first.readMin, first.readMax)
 
 	// Remove any tombstones
-	tombstones := first.r.TombstoneRange(c.key)
+	tombstones := first.tsmFile.TombstoneRange(c.key)
 	values = excludeTombstonesIntegerValues(tombstones, values)
 	// If there are no values in this first block (all tombstoned or previously read) and
 	// we have more potential blocks too search.  Try again.
@@ -241,20 +241,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MinTime < minT && !cur.read() {
-				minT = cur.entry.MinTime
+			if cur.indexEntry.MinTime < minT && !cur.read() {
+				minT = cur.indexEntry.MinTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MaxTime > maxT {
-					maxT = cur.entry.MaxTime
+				if cur.indexEntry.MaxTime > maxT {
+					maxT = cur.indexEntry.MaxTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -266,23 +266,23 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []IntegerValue
 			var v IntegerValues
-			v, err := cur.r.ReadIntegerBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadIntegerBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(integerBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(integerBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(integerBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
 
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesIntegerValues(tombstones, v)
 
@@ -304,20 +304,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MaxTime > maxT && !cur.read() {
-				maxT = cur.entry.MaxTime
+			if cur.indexEntry.MaxTime > maxT && !cur.read() {
+				maxT = cur.indexEntry.MaxTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MinTime < minT {
-					minT = cur.entry.MinTime
+				if cur.indexEntry.MinTime < minT {
+					minT = cur.indexEntry.MinTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -329,22 +329,22 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []IntegerValue
 			var v IntegerValues
-			v, err := cur.r.ReadIntegerBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadIntegerBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(integerBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(integerBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(integerBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesIntegerValues(tombstones, v)
 
@@ -386,20 +386,20 @@ LOOP:
 	first := c.current[0]
 	*buf = (*buf)[:0]
 	var values UnsignedValues
-	values, err := first.r.ReadUnsignedBlockAt(&first.entry, buf)
+	values, err := first.tsmFile.ReadUnsignedBlockAt(&first.indexEntry, buf)
 	if err != nil {
 		return nil, err
 	}
 	if c.col != nil {
 		c.col.GetCounter(unsignedBlocksDecodedCounter).Add(1)
-		c.col.GetCounter(unsignedBlocksSizeCounter).Add(int64(first.entry.Size))
+		c.col.GetCounter(unsignedBlocksSizeCounter).Add(int64(first.indexEntry.Size))
 	}
 
 	// Remove values we already read
 	values = values.Exclude(first.readMin, first.readMax)
 
 	// Remove any tombstones
-	tombstones := first.r.TombstoneRange(c.key)
+	tombstones := first.tsmFile.TombstoneRange(c.key)
 	values = excludeTombstonesUnsignedValues(tombstones, values)
 	// If there are no values in this first block (all tombstoned or previously read) and
 	// we have more potential blocks too search.  Try again.
@@ -427,20 +427,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MinTime < minT && !cur.read() {
-				minT = cur.entry.MinTime
+			if cur.indexEntry.MinTime < minT && !cur.read() {
+				minT = cur.indexEntry.MinTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MaxTime > maxT {
-					maxT = cur.entry.MaxTime
+				if cur.indexEntry.MaxTime > maxT {
+					maxT = cur.indexEntry.MaxTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -452,23 +452,23 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []UnsignedValue
 			var v UnsignedValues
-			v, err := cur.r.ReadUnsignedBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadUnsignedBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(unsignedBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(unsignedBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(unsignedBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
 
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesUnsignedValues(tombstones, v)
 
@@ -490,20 +490,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MaxTime > maxT && !cur.read() {
-				maxT = cur.entry.MaxTime
+			if cur.indexEntry.MaxTime > maxT && !cur.read() {
+				maxT = cur.indexEntry.MaxTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MinTime < minT {
-					minT = cur.entry.MinTime
+				if cur.indexEntry.MinTime < minT {
+					minT = cur.indexEntry.MinTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -515,22 +515,22 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []UnsignedValue
 			var v UnsignedValues
-			v, err := cur.r.ReadUnsignedBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadUnsignedBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(unsignedBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(unsignedBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(unsignedBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesUnsignedValues(tombstones, v)
 
@@ -572,20 +572,20 @@ LOOP:
 	first := c.current[0]
 	*buf = (*buf)[:0]
 	var values StringValues
-	values, err := first.r.ReadStringBlockAt(&first.entry, buf)
+	values, err := first.tsmFile.ReadStringBlockAt(&first.indexEntry, buf)
 	if err != nil {
 		return nil, err
 	}
 	if c.col != nil {
 		c.col.GetCounter(stringBlocksDecodedCounter).Add(1)
-		c.col.GetCounter(stringBlocksSizeCounter).Add(int64(first.entry.Size))
+		c.col.GetCounter(stringBlocksSizeCounter).Add(int64(first.indexEntry.Size))
 	}
 
 	// Remove values we already read
 	values = values.Exclude(first.readMin, first.readMax)
 
 	// Remove any tombstones
-	tombstones := first.r.TombstoneRange(c.key)
+	tombstones := first.tsmFile.TombstoneRange(c.key)
 	values = excludeTombstonesStringValues(tombstones, values)
 	// If there are no values in this first block (all tombstoned or previously read) and
 	// we have more potential blocks too search.  Try again.
@@ -613,20 +613,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MinTime < minT && !cur.read() {
-				minT = cur.entry.MinTime
+			if cur.indexEntry.MinTime < minT && !cur.read() {
+				minT = cur.indexEntry.MinTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MaxTime > maxT {
-					maxT = cur.entry.MaxTime
+				if cur.indexEntry.MaxTime > maxT {
+					maxT = cur.indexEntry.MaxTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -638,23 +638,23 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []StringValue
 			var v StringValues
-			v, err := cur.r.ReadStringBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadStringBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(stringBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(stringBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(stringBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
 
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesStringValues(tombstones, v)
 
@@ -676,20 +676,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MaxTime > maxT && !cur.read() {
-				maxT = cur.entry.MaxTime
+			if cur.indexEntry.MaxTime > maxT && !cur.read() {
+				maxT = cur.indexEntry.MaxTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MinTime < minT {
-					minT = cur.entry.MinTime
+				if cur.indexEntry.MinTime < minT {
+					minT = cur.indexEntry.MinTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -701,22 +701,22 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []StringValue
 			var v StringValues
-			v, err := cur.r.ReadStringBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadStringBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(stringBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(stringBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(stringBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesStringValues(tombstones, v)
 
@@ -758,20 +758,20 @@ LOOP:
 	first := c.current[0]
 	*buf = (*buf)[:0]
 	var values BooleanValues
-	values, err := first.r.ReadBooleanBlockAt(&first.entry, buf)
+	values, err := first.tsmFile.ReadBooleanBlockAt(&first.indexEntry, buf)
 	if err != nil {
 		return nil, err
 	}
 	if c.col != nil {
 		c.col.GetCounter(booleanBlocksDecodedCounter).Add(1)
-		c.col.GetCounter(booleanBlocksSizeCounter).Add(int64(first.entry.Size))
+		c.col.GetCounter(booleanBlocksSizeCounter).Add(int64(first.indexEntry.Size))
 	}
 
 	// Remove values we already read
 	values = values.Exclude(first.readMin, first.readMax)
 
 	// Remove any tombstones
-	tombstones := first.r.TombstoneRange(c.key)
+	tombstones := first.tsmFile.TombstoneRange(c.key)
 	values = excludeTombstonesBooleanValues(tombstones, values)
 	// If there are no values in this first block (all tombstoned or previously read) and
 	// we have more potential blocks too search.  Try again.
@@ -799,20 +799,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MinTime < minT && !cur.read() {
-				minT = cur.entry.MinTime
+			if cur.indexEntry.MinTime < minT && !cur.read() {
+				minT = cur.indexEntry.MinTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MaxTime > maxT {
-					maxT = cur.entry.MaxTime
+				if cur.indexEntry.MaxTime > maxT {
+					maxT = cur.indexEntry.MaxTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -824,23 +824,23 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []BooleanValue
 			var v BooleanValues
-			v, err := cur.r.ReadBooleanBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadBooleanBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(booleanBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(booleanBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(booleanBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
 
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesBooleanValues(tombstones, v)
 
@@ -862,20 +862,20 @@ LOOP:
 		// order
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.MaxTime > maxT && !cur.read() {
-				maxT = cur.entry.MaxTime
+			if cur.indexEntry.MaxTime > maxT && !cur.read() {
+				maxT = cur.indexEntry.MaxTime
 			}
 		}
 
 		// Find first block that overlaps our window
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
-			if cur.entry.OverlapsTimeRange(minT, maxT) && !cur.read() {
+			if cur.indexEntry.OverlapsTimeRange(minT, maxT) && !cur.read() {
 				// Shrink our window so it's the intersection of the first overlapping block and the
 				// first block.  We do this to minimize the region that overlaps and needs to
 				// be merged.
-				if cur.entry.MinTime < minT {
-					minT = cur.entry.MinTime
+				if cur.indexEntry.MinTime < minT {
+					minT = cur.indexEntry.MinTime
 				}
 				values = values.Include(minT, maxT)
 				break
@@ -887,22 +887,22 @@ LOOP:
 		for i := 1; i < len(c.current); i++ {
 			cur := c.current[i]
 			// Skip this block if it doesn't contain points we looking for or they have already been read
-			if !cur.entry.OverlapsTimeRange(minT, maxT) || cur.read() {
+			if !cur.indexEntry.OverlapsTimeRange(minT, maxT) || cur.read() {
 				cur.markRead(minT, maxT)
 				continue
 			}
 
 			var a []BooleanValue
 			var v BooleanValues
-			v, err := cur.r.ReadBooleanBlockAt(&cur.entry, &a)
+			v, err := cur.tsmFile.ReadBooleanBlockAt(&cur.indexEntry, &a)
 			if err != nil {
 				return nil, err
 			}
 			if c.col != nil {
 				c.col.GetCounter(booleanBlocksDecodedCounter).Add(1)
-				c.col.GetCounter(booleanBlocksSizeCounter).Add(int64(cur.entry.Size))
+				c.col.GetCounter(booleanBlocksSizeCounter).Add(int64(cur.indexEntry.Size))
 			}
-			tombstones := cur.r.TombstoneRange(c.key)
+			tombstones := cur.tsmFile.TombstoneRange(c.key)
 			// Remove any tombstoned values
 			v = excludeTombstonesBooleanValues(tombstones, v)
 

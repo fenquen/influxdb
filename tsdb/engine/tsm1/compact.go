@@ -711,7 +711,7 @@ type Compactor struct {
 
 	FileStore interface {
 		NextGeneration() int
-		TSMReader(path string) *TSMReader
+		TSMReader(path string) *TsmFileReader
 	}
 
 	// RateLimit is the limit for disk writes for all concurrent compactions.
@@ -934,7 +934,7 @@ func (compactor *Compactor) compact(fast bool, tsmFiles []string, logger *zap.Lo
 	}
 
 	// For each TSM file, create a TSM reader
-	var tsmReaders []*TSMReader
+	var tsmReaders []*TsmFileReader
 	for _, file := range tsmFiles {
 		select {
 		case <-intC:
@@ -1323,7 +1323,7 @@ func (a blocks) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 // the readers have associated tombstone entries, they are returned as part of iteration.
 type tsmBatchKeyIterator struct {
 	// readers is the set of readers it produce a sorted key run with
-	readers []*TSMReader
+	readers []*TsmFileReader
 
 	// values is the temporary buffers for each key that is returned by a reader
 	values map[string][]Value
@@ -1394,7 +1394,7 @@ func (t *tsmBatchKeyIterator) AppendError(err error) bool {
 
 // NewTSMBatchKeyIterator returns a new TSM key iterator from readers.
 // size indicates the maximum number of values to encode in a single block.
-func NewTSMBatchKeyIterator(size int, fast bool, maxErrors int, interrupt chan struct{}, tsmFiles []string, readers ...*TSMReader) (KeyIterator, error) {
+func NewTSMBatchKeyIterator(size int, fast bool, maxErrors int, interrupt chan struct{}, tsmFiles []string, readers ...*TsmFileReader) (KeyIterator, error) {
 	var iter []*BlockIterator
 	for _, r := range readers {
 		iter = append(iter, r.BlockIterator())

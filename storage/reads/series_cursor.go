@@ -15,13 +15,13 @@ type SeriesCursor interface {
 }
 
 type SeriesRow struct {
-	SortKey    []byte
-	Name       []byte      // measurement name
-	SeriesTags models.Tags // unmodified series tags
-	Tags       models.Tags
-	Field      string
-	Query      cursors.CursorIterators
-	ValueCond  influxql.Expr
+	SortKey         []byte
+	Name            []byte      // measurement name
+	SeriesTags      models.Tags // unmodified series tags
+	Tags            models.Tags
+	Field           string
+	CursorIterators cursors.CursorIterators
+	ValueCond       influxql.Expr
 }
 
 type limitSeriesCursor struct {

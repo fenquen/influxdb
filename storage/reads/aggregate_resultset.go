@@ -140,18 +140,18 @@ func (r *windowAggregateResultSet) Close() {
 	if r == nil {
 		return
 	}
-	r.seriesRow.Query = nil
+	r.seriesRow.CursorIterators = nil
 	r.seriesCursor.Close()
 }
 
 func (r *windowAggregateResultSet) Err() error { return r.err }
 
 func (r *windowAggregateResultSet) Stats() cursors.CursorStats {
-	if r.seriesRow.Query == nil {
+	if r.seriesRow.CursorIterators == nil {
 		return cursors.CursorStats{}
 	}
 	// See the equivalent method in *resultSet.Stats.
-	return r.seriesRow.Query.Stats()
+	return r.seriesRow.CursorIterators.Stats()
 }
 
 func (r *windowAggregateResultSet) Tags() models.Tags {

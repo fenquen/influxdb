@@ -845,7 +845,7 @@ type ContinuousQueryInfo struct {
 	unknownFields protoimpl.UnknownFields
 
 	Name  *string `protobuf:"bytes,1,req,name=Name" json:"Name,omitempty"`
-	Query *string `protobuf:"bytes,2,req,name=Query" json:"Query,omitempty"`
+	Query *string `protobuf:"bytes,2,req,name=CursorIterators" json:"CursorIterators,omitempty"`
 }
 
 func (x *ContinuousQueryInfo) Reset() {
@@ -1659,7 +1659,7 @@ type CreateContinuousQueryCommand struct {
 
 	Database *string `protobuf:"bytes,1,req,name=Database" json:"Database,omitempty"`
 	Name     *string `protobuf:"bytes,2,req,name=Name" json:"Name,omitempty"`
-	Query    *string `protobuf:"bytes,3,req,name=Query" json:"Query,omitempty"`
+	Query    *string `protobuf:"bytes,3,req,name=CursorIterators" json:"CursorIterators,omitempty"`
 }
 
 func (x *CreateContinuousQueryCommand) Reset() {

@@ -34,7 +34,7 @@ const (
 
 // represent the section of the index that holds series data.
 type SeriesFile struct {
-	path       string
+	dirPath    string
 	partitions []*SeriesPartition
 
 	maxSnapshotConcurrency int
@@ -45,14 +45,14 @@ type SeriesFile struct {
 }
 
 // NewSeriesFile returns a new instance of SeriesFile.
-func NewSeriesFile(path string) *SeriesFile {
+func NewSeriesFile(dirPath string) *SeriesFile {
 	maxSnapshotConcurrency := runtime.GOMAXPROCS(0)
 	if maxSnapshotConcurrency < 1 {
 		maxSnapshotConcurrency = 1
 	}
 
 	return &SeriesFile{
-		path:                   path,
+		dirPath:                dirPath,
 		maxSnapshotConcurrency: maxSnapshotConcurrency,
 		Logger:                 zap.NewNop(),
 	}
@@ -76,7 +76,7 @@ func (seriesFile *SeriesFile) Open() error {
 	defer seriesFile.refs.Unlock()
 
 	// Create path if it doesn't exist.
-	if err := os.MkdirAll(filepath.Join(seriesFile.path), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Join(seriesFile.dirPath), 0777); err != nil {
 		return err
 	}
 
@@ -90,7 +90,7 @@ func (seriesFile *SeriesFile) Open() error {
 		seriesPartition.Logger = seriesFile.Logger.With(zap.Int("partition", seriesPartition.ID()))
 		if err := seriesPartition.Open(); err != nil {
 			seriesFile.Logger.Error("Unable to open series file",
-				zap.String("path", seriesFile.path),
+				zap.String("path", seriesFile.dirPath),
 				zap.Int("partition", seriesPartition.ID()),
 				zap.Error(err))
 			seriesFile.close()
@@ -120,11 +120,11 @@ func (seriesFile *SeriesFile) Close() (err error) {
 }
 
 // Path returns the path to the file.
-func (seriesFile *SeriesFile) Path() string { return seriesFile.path }
+func (seriesFile *SeriesFile) Path() string { return seriesFile.dirPath }
 
 // SeriesPartitionPath returns the path to a given partition.
 func (seriesFile *SeriesFile) SeriesPartitionPath(i int) string {
-	return filepath.Join(seriesFile.path, fmt.Sprintf("%02x", i))
+	return filepath.Join(seriesFile.dirPath, fmt.Sprintf("%02x", i))
 }
 
 // Partitions returns all partitions.

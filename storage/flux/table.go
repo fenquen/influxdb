@@ -239,8 +239,8 @@ func (t *table) closeDone() {
 	}
 }
 
-func (t *floatTable) toArrowBuffer(vs []float64) *array.Float {
-	return arrow.NewFloat(vs, t.alloc)
+func (floatTable *floatTable) toArrowBuffer(vs []float64) *array.Float {
+	return arrow.NewFloat(vs, floatTable.alloc)
 }
 func (t *floatGroupTable) toArrowBuffer(vs []float64) *array.Float {
 	return arrow.NewFloat(vs, t.alloc)

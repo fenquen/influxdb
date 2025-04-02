@@ -12,10 +12,10 @@ type multiShardCursors interface {
 }
 
 type resultSet struct {
-	ctx          context.Context
-	seriesCursor SeriesCursor
-	seriesRow    SeriesRow
-	arrayCursors multiShardCursors
+	ctx               context.Context
+	seriesCursor      SeriesCursor
+	seriesRow         SeriesRow
+	multiShardCursors multiShardCursors
 }
 
 // TODO(jsternberg): The range is [start, end) for this function which is consistent
@@ -24,47 +24,49 @@ type resultSet struct {
 // ResultSet functions.
 func NewFilteredResultSet(ctx context.Context, start, end int64, seriesCursor SeriesCursor) ResultSet {
 	return &resultSet{
-		ctx:          ctx,
-		seriesCursor: seriesCursor,
-		arrayCursors: newMultiShardArrayCursors(ctx, start, end, true),
+		ctx:               ctx,
+		seriesCursor:      seriesCursor,
+		multiShardCursors: newMultiShardArrayCursors(ctx, start, end, true),
 	}
 }
 
-func (r *resultSet) Err() error { return nil }
+func (resultSet *resultSet) Err() error { return nil }
 
 // Close closes the result set. Close is idempotent.
-func (r *resultSet) Close() {
-	if r == nil {
+func (resultSet *resultSet) Close() {
+	if resultSet == nil {
 		return // Nothing to do.
 	}
-	r.seriesRow.Query = nil
-	r.seriesCursor.Close()
+	resultSet.seriesRow.CursorIterators = nil
+	resultSet.seriesCursor.Close()
 }
 
 // Next returns true if there are more results available.
-func (r *resultSet) Next() bool {
-	if r == nil {
+func (resultSet *resultSet) Next() bool {
+	if resultSet == nil {
 		return false
 	}
 
-	seriesRow := r.seriesCursor.Next()
+	seriesRow := resultSet.seriesCursor.Next()
 	if seriesRow == nil {
 		return false
 	}
 
-	r.seriesRow = *seriesRow
+	resultSet.seriesRow = *seriesRow
 
 	return true
 }
 
-func (r *resultSet) Cursor() cursors.Cursor {
-	return r.arrayCursors.createCursor(r.seriesRow)
+func (resultSet *resultSet) Cursor() cursors.Cursor {
+	return resultSet.multiShardCursors.createCursor(resultSet.seriesRow)
 }
 
-func (r *resultSet) Tags() models.Tags {
-	return r.seriesRow.Tags
+func (resultSet *resultSet) Tags() models.Tags {
+	return resultSet.seriesRow.Tags
 }
 
 // Stats returns the stats for the underlying cursors.
 // Available after resultset has been scanned.
-func (r *resultSet) Stats() cursors.CursorStats { return r.seriesRow.Query.Stats() }
+func (resultSet *resultSet) Stats() cursors.CursorStats {
+	return resultSet.seriesRow.CursorIterators.Stats()
+}

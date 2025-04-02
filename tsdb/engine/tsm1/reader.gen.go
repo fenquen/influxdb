@@ -11,89 +11,89 @@ import (
 )
 
 // ReadFloatBlockAt returns the float values corresponding to the given index entry.
-func (t *TSMReader) ReadFloatBlockAt(entry *IndexEntry, vals *[]FloatValue) ([]FloatValue, error) {
-	t.mu.RLock()
-	v, err := t.accessor.readFloatBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadFloatBlockAt(entry *IndexEntry, vals *[]FloatValue) ([]FloatValue, error) {
+	tsmReader.mu.RLock()
+	v, err := tsmReader.blockAccessor.readFloatBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return v, err
 }
 
 // ReadFloatArrayBlockAt fills vals with the float values corresponding to the given index entry.
-func (t *TSMReader) ReadFloatArrayBlockAt(entry *IndexEntry, vals *tsdb.FloatArray) error {
-	t.mu.RLock()
-	err := t.accessor.readFloatArrayBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadFloatArrayBlockAt(entry *IndexEntry, vals *tsdb.FloatArray) error {
+	tsmReader.mu.RLock()
+	err := tsmReader.blockAccessor.readFloatArrayBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return err
 }
 
 // ReadIntegerBlockAt returns the integer values corresponding to the given index entry.
-func (t *TSMReader) ReadIntegerBlockAt(entry *IndexEntry, vals *[]IntegerValue) ([]IntegerValue, error) {
-	t.mu.RLock()
-	v, err := t.accessor.readIntegerBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadIntegerBlockAt(entry *IndexEntry, vals *[]IntegerValue) ([]IntegerValue, error) {
+	tsmReader.mu.RLock()
+	v, err := tsmReader.blockAccessor.readIntegerBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return v, err
 }
 
 // ReadIntegerArrayBlockAt fills vals with the integer values corresponding to the given index entry.
-func (t *TSMReader) ReadIntegerArrayBlockAt(entry *IndexEntry, vals *tsdb.IntegerArray) error {
-	t.mu.RLock()
-	err := t.accessor.readIntegerArrayBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadIntegerArrayBlockAt(entry *IndexEntry, vals *tsdb.IntegerArray) error {
+	tsmReader.mu.RLock()
+	err := tsmReader.blockAccessor.readIntegerArrayBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return err
 }
 
 // ReadUnsignedBlockAt returns the unsigned values corresponding to the given index entry.
-func (t *TSMReader) ReadUnsignedBlockAt(entry *IndexEntry, vals *[]UnsignedValue) ([]UnsignedValue, error) {
-	t.mu.RLock()
-	v, err := t.accessor.readUnsignedBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadUnsignedBlockAt(entry *IndexEntry, vals *[]UnsignedValue) ([]UnsignedValue, error) {
+	tsmReader.mu.RLock()
+	v, err := tsmReader.blockAccessor.readUnsignedBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return v, err
 }
 
 // ReadUnsignedArrayBlockAt fills vals with the unsigned values corresponding to the given index entry.
-func (t *TSMReader) ReadUnsignedArrayBlockAt(entry *IndexEntry, vals *tsdb.UnsignedArray) error {
-	t.mu.RLock()
-	err := t.accessor.readUnsignedArrayBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadUnsignedArrayBlockAt(entry *IndexEntry, vals *tsdb.UnsignedArray) error {
+	tsmReader.mu.RLock()
+	err := tsmReader.blockAccessor.readUnsignedArrayBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return err
 }
 
 // ReadStringBlockAt returns the string values corresponding to the given index entry.
-func (t *TSMReader) ReadStringBlockAt(entry *IndexEntry, vals *[]StringValue) ([]StringValue, error) {
-	t.mu.RLock()
-	v, err := t.accessor.readStringBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadStringBlockAt(entry *IndexEntry, vals *[]StringValue) ([]StringValue, error) {
+	tsmReader.mu.RLock()
+	v, err := tsmReader.blockAccessor.readStringBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return v, err
 }
 
 // ReadStringArrayBlockAt fills vals with the string values corresponding to the given index entry.
-func (t *TSMReader) ReadStringArrayBlockAt(entry *IndexEntry, vals *tsdb.StringArray) error {
-	t.mu.RLock()
-	err := t.accessor.readStringArrayBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadStringArrayBlockAt(entry *IndexEntry, vals *tsdb.StringArray) error {
+	tsmReader.mu.RLock()
+	err := tsmReader.blockAccessor.readStringArrayBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return err
 }
 
 // ReadBooleanBlockAt returns the boolean values corresponding to the given index entry.
-func (t *TSMReader) ReadBooleanBlockAt(entry *IndexEntry, vals *[]BooleanValue) ([]BooleanValue, error) {
-	t.mu.RLock()
-	v, err := t.accessor.readBooleanBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadBooleanBlockAt(entry *IndexEntry, vals *[]BooleanValue) ([]BooleanValue, error) {
+	tsmReader.mu.RLock()
+	v, err := tsmReader.blockAccessor.readBooleanBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return v, err
 }
 
 // ReadBooleanArrayBlockAt fills vals with the boolean values corresponding to the given index entry.
-func (t *TSMReader) ReadBooleanArrayBlockAt(entry *IndexEntry, vals *tsdb.BooleanArray) error {
-	t.mu.RLock()
-	err := t.accessor.readBooleanArrayBlock(entry, vals)
-	t.mu.RUnlock()
+func (tsmReader *TsmFileReader) ReadBooleanArrayBlockAt(entry *IndexEntry, vals *tsdb.BooleanArray) error {
+	tsmReader.mu.RLock()
+	err := tsmReader.blockAccessor.readBooleanArrayBlock(entry, vals)
+	tsmReader.mu.RUnlock()
 	return err
 }
 
 // blockAccessor abstracts a method of accessing blocks from a
 // TSM file.
 type blockAccessor interface {
-	init() (*indirectIndex, error)
+	init() (*indirectTsmIndex, error)
 	read(key []byte, timestamp int64) ([]Value, error)
 	readAll(key []byte) ([]Value, error)
 	readBlock(entry *IndexEntry, values []Value) ([]Value, error)

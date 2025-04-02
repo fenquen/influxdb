@@ -111,11 +111,11 @@ func (multiShardArrayCursors *multiShardArrayCursors) createCursor(seriesRow Ser
 		cond = &astExpr{seriesRow.ValueCond}
 	}
 
-	var shard cursors.CursorIterator
+	var shardCursorIter cursors.CursorIterator
 	var cur cursors.Cursor
-	for cur == nil && len(seriesRow.Query) > 0 {
-		shard, seriesRow.Query = seriesRow.Query[0], seriesRow.Query[1:]
-		cur, _ = shard.Next(multiShardArrayCursors.ctx, &multiShardArrayCursors.req)
+	for cur == nil && len(seriesRow.CursorIterators) > 0 {
+		shardCursorIter, seriesRow.CursorIterators = seriesRow.CursorIterators[0], seriesRow.CursorIterators[1:]
+		cur, _ = shardCursorIter.Next(multiShardArrayCursors.ctx, &multiShardArrayCursors.req)
 	}
 
 	if cur == nil {
@@ -124,19 +124,19 @@ func (multiShardArrayCursors *multiShardArrayCursors) createCursor(seriesRow Ser
 
 	switch c := cur.(type) {
 	case cursors.IntegerArrayCursor:
-		multiShardArrayCursors.cursors.i.reset(c, seriesRow.Query, cond)
+		multiShardArrayCursors.cursors.i.reset(c, seriesRow.CursorIterators, cond)
 		return &multiShardArrayCursors.cursors.i
 	case cursors.FloatArrayCursor:
-		multiShardArrayCursors.cursors.f.reset(c, seriesRow.Query, cond)
+		multiShardArrayCursors.cursors.f.reset(c, seriesRow.CursorIterators, cond)
 		return &multiShardArrayCursors.cursors.f
 	case cursors.UnsignedArrayCursor:
-		multiShardArrayCursors.cursors.u.reset(c, seriesRow.Query, cond)
+		multiShardArrayCursors.cursors.u.reset(c, seriesRow.CursorIterators, cond)
 		return &multiShardArrayCursors.cursors.u
 	case cursors.StringArrayCursor:
-		multiShardArrayCursors.cursors.s.reset(c, seriesRow.Query, cond)
+		multiShardArrayCursors.cursors.s.reset(c, seriesRow.CursorIterators, cond)
 		return &multiShardArrayCursors.cursors.s
 	case cursors.BooleanArrayCursor:
-		multiShardArrayCursors.cursors.b.reset(c, seriesRow.Query, cond)
+		multiShardArrayCursors.cursors.b.reset(c, seriesRow.CursorIterators, cond)
 		return &multiShardArrayCursors.cursors.b
 	default:
 		panic(fmt.Sprintf("unreachable: %T", cur))

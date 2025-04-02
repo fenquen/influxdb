@@ -1,0 +1,3 @@
+[toolchain] # cargo upgrade -p proc-macro2 它不是直接的依赖的 升级到最新的
+channel = "nightly-2024-02-04" # 不能太新也不能太旧的
+profile = "minimal" # https://rust-lang.github.io/rustup/concepts/profiles.html

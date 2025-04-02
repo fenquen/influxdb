@@ -110,7 +110,7 @@ func reportDBRunE(_ *cobra.Command, reportdb *ReportDB) error {
 			return nil
 		}
 
-		reader, err := tsm1.NewTSMReader(file)
+		reader, err := tsm1.NewTsmFileReader(file)
 		if err != nil {
 			_, _ = fmt.Fprintf(reportdb.Stderr, "error: %s: %v. Skipping.\n", file.Name(), err)
 			// NewTSMReader won't close the file handle on failure, so do it here.

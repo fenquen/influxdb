@@ -37,14 +37,14 @@ func DigestWithOptions(dir string, files []string, opts DigestOptions, w io.Writ
 		}
 	}()
 
-	readers := make([]*TSMReader, 0, len(files))
+	readers := make([]*TsmFileReader, 0, len(files))
 	for _, fi := range files {
 		f, err := os.Open(fi)
 		if err != nil {
 			return err
 		}
 
-		r, err := NewTSMReader(f)
+		r, err := NewTsmFileReader(f)
 		if err != nil {
 			return err
 		}

@@ -73,7 +73,7 @@ func newIndexSeriesCursorInfluxQLPred(ctx context.Context, predicate influxql.Ex
 		Ascending:  true,
 		Ordered:    true,
 	}
-	p := &indexSeriesCursor{row: reads.SeriesRow{Query: queries}}
+	p := &indexSeriesCursor{row: reads.SeriesRow{CursorIterators: queries}}
 
 	if predicate != nil {
 		p.cond = predicate

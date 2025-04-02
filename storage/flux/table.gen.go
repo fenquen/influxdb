@@ -31,9 +31,9 @@ import (
 
 type floatTable struct {
 	table
-	mu    sync.Mutex
-	cur   cursors.FloatArrayCursor
-	alloc memory.Allocator
+	mu               sync.Mutex
+	floatArrayCursor cursors.FloatArrayCursor
+	alloc            memory.Allocator
 }
 
 func newFloatTable(
@@ -47,29 +47,29 @@ func newFloatTable(
 	cache *tagsCache,
 	alloc memory.Allocator,
 ) *floatTable {
-	t := &floatTable{
-		table: newTable(done, bounds, key, cols, defs, cache, alloc),
-		cur:   cur,
+	floatTable := &floatTable{
+		table:            newTable(done, bounds, key, cols, defs, cache, alloc),
+		floatArrayCursor: cur,
 	}
-	t.readTags(tags)
-	t.init(t.advance)
+	floatTable.readTags(tags)
+	floatTable.init(floatTable.advance)
 
-	return t
+	return floatTable
 }
 
-func (t *floatTable) Close() {
-	t.mu.Lock()
-	if t.cur != nil {
-		t.cur.Close()
-		t.cur = nil
+func (floatTable *floatTable) Close() {
+	floatTable.mu.Lock()
+	if floatTable.floatArrayCursor != nil {
+		floatTable.floatArrayCursor.Close()
+		floatTable.floatArrayCursor = nil
 	}
-	t.mu.Unlock()
+	floatTable.mu.Unlock()
 }
 
-func (t *floatTable) Statistics() cursors.CursorStats {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	cur := t.cur
+func (floatTable *floatTable) Statistics() cursors.CursorStats {
+	floatTable.mu.Lock()
+	defer floatTable.mu.Unlock()
+	cur := floatTable.floatArrayCursor
 	if cur == nil {
 		return cursors.CursorStats{}
 	}
@@ -80,13 +80,13 @@ func (t *floatTable) Statistics() cursors.CursorStats {
 	}
 }
 
-func (t *floatTable) Do(f func(flux.ColReader) error) error {
-	return t.do(f, t.advance)
+func (floatTable *floatTable) Do(f func(flux.ColReader) error) error {
+	return floatTable.do(f, floatTable.advance)
 }
 
-func (t *floatTable) advance() bool {
-	a := t.cur.Next()
-	l := a.Len()
+func (floatTable *floatTable) advance() bool {
+	floatArray := floatTable.floatArrayCursor.Next()
+	l := floatArray.Len()
 	if l == 0 {
 		return false
 	}
@@ -95,11 +95,11 @@ func (t *floatTable) advance() bool {
 	// additional slices. If the buffer is still being used
 	// because the references were retained, then we will
 	// allocate a new buffer.
-	cr := t.allocateBuffer(l)
-	cr.cols[timeColIdx] = arrow.NewInt(a.Timestamps, t.alloc)
-	cr.cols[valueColIdx] = t.toArrowBuffer(a.Values)
-	t.appendTags(cr)
-	t.appendBounds(cr)
+	colReader := floatTable.allocateBuffer(l)
+	colReader.cols[timeColIdx] = arrow.NewInt(floatArray.Timestamps, floatTable.alloc)
+	colReader.cols[valueColIdx] = floatTable.toArrowBuffer(floatArray.Values)
+	floatTable.appendTags(colReader)
+	floatTable.appendBounds(colReader)
 	return true
 }
 
@@ -133,8 +133,8 @@ func newFloatWindowTable(
 ) *floatWindowTable {
 	t := &floatWindowTable{
 		floatTable: floatTable{
-			table: newTable(done, bounds, key, cols, defs, cache, alloc),
-			cur:   cur,
+			table:            newTable(done, bounds, key, cols, defs, cache, alloc),
+			floatArrayCursor: cur,
 		},
 		window:      window,
 		createEmpty: createEmpty,
@@ -265,7 +265,7 @@ func (t *floatWindowTable) nextBuffer() bool {
 
 	// Retrieve the next array cursor if needed.
 	if t.arr == nil {
-		arr := t.cur.Next()
+		arr := t.floatArrayCursor.Next()
 		if arr.Len() == 0 {
 			return false
 		}
@@ -344,8 +344,8 @@ func newFloatWindowSelectorTable(
 ) *floatWindowSelectorTable {
 	t := &floatWindowSelectorTable{
 		floatTable: floatTable{
-			table: newTable(done, bounds, key, cols, defs, cache, alloc),
-			cur:   cur,
+			table:            newTable(done, bounds, key, cols, defs, cache, alloc),
+			floatArrayCursor: cur,
 		},
 		window:     window,
 		timeColumn: timeColumn,
@@ -360,7 +360,7 @@ func (t *floatWindowSelectorTable) Do(f func(flux.ColReader) error) error {
 }
 
 func (t *floatWindowSelectorTable) advance() bool {
-	arr := t.cur.Next()
+	arr := t.floatArrayCursor.Next()
 	if arr.Len() == 0 {
 		return false
 	}
@@ -447,8 +447,8 @@ func newFloatEmptyWindowSelectorTable(
 	rangeStop := int64(bounds.Stop)
 	t := &floatEmptyWindowSelectorTable{
 		floatTable: floatTable{
-			table: newTable(done, bounds, key, cols, defs, cache, alloc),
-			cur:   cur,
+			table:            newTable(done, bounds, key, cols, defs, cache, alloc),
+			floatArrayCursor: cur,
 		},
 		arr:          cur.Next(),
 		rangeStart:   rangeStart,
@@ -536,7 +536,7 @@ func (t *floatEmptyWindowSelectorTable) startTimes(builder *array.FloatBuilder) 
 		// If the current array is non-empty and has
 		// been read in its entirety, call Next().
 		if t.arr.Len() > 0 && t.idx == t.arr.Len() {
-			t.arr = t.cur.Next()
+			t.arr = t.floatArrayCursor.Next()
 			t.idx = 0
 		}
 
@@ -583,7 +583,7 @@ func (t *floatEmptyWindowSelectorTable) stopTimes(builder *array.FloatBuilder) *
 		// If the current array is non-empty and has
 		// been read in its entirety, call Next().
 		if t.arr.Len() > 0 && t.idx == t.arr.Len() {
-			t.arr = t.cur.Next()
+			t.arr = t.floatArrayCursor.Next()
 			t.idx = 0
 		}
 
@@ -647,7 +647,7 @@ func (t *floatEmptyWindowSelectorTable) startStopTimes(builder *array.FloatBuild
 		// If the current array is non-empty and has
 		// been read in its entirety, call Next().
 		if t.arr.Len() > 0 && t.idx == t.arr.Len() {
-			t.arr = t.cur.Next()
+			t.arr = t.floatArrayCursor.Next()
 			t.idx = 0
 		}
 

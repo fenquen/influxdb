@@ -690,7 +690,7 @@ func (store *Store) CreateShard(ctx context.Context, bucketIdStr, retentionPolic
 		return err
 	}
 
-	// store.path/bucketIdStr/SeriesFileDirectory
+	// store.path/bucketIdStr/_series
 	seriesFile, err := store.openSeriesFile(bucketIdStr)
 	if err != nil {
 		return err

@@ -391,8 +391,8 @@ func (shard *Shard) openNoLock(ctx context.Context) (bool, error) {
 		seriesIDSet := NewSeriesIDSet()
 
 		// store.path/bucketIdStr/retentionPolicyName/shardId/index
-		indexPath := filepath.Join(shard.path, "index")
-		index, err := NewIndex(shard.id, shard.database, indexPath, seriesIDSet, shard.sfile, shard.engineOptions)
+		indexDirPath := filepath.Join(shard.path, "index")
+		index, err := NewIndex(shard.id, shard.database, indexDirPath, seriesIDSet, shard.sfile, shard.engineOptions)
 		if err != nil {
 			return err
 		}
@@ -401,11 +401,11 @@ func (shard *Shard) openNoLock(ctx context.Context) (bool, error) {
 		// Check if the index needs to be rebuilt before Open() initializes
 		// its file system layout.
 		var shouldReindex bool
-		if _, err = os.Stat(indexPath); os.IsNotExist(err) {
+		if _, err = os.Stat(indexDirPath); os.IsNotExist(err) {
 			shouldReindex = true
 		}
 
-		// Open index.
+		// Open index
 		if err = index.Open(); err != nil {
 			return err
 		}

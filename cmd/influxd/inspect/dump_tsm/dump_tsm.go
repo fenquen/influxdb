@@ -76,7 +76,7 @@ func dumpTSM(cmd *cobra.Command, args args) error {
 		return fmt.Errorf("%s is not a TSM file", args.path)
 	}
 
-	r, err := tsm1.NewTSMReader(f)
+	r, err := tsm1.NewTsmFileReader(f)
 	if err != nil {
 		return fmt.Errorf("error opening TSM file: %w", err)
 	}
@@ -172,7 +172,7 @@ type dumpIndexParams struct {
 	minTime  int64
 	maxTime  int64
 	keyCount int
-	r        *tsm1.TSMReader
+	r        *tsm1.TsmFileReader
 }
 
 func dumpIndex(cmd *cobra.Command, args args, info dumpIndexParams) {
@@ -212,7 +212,7 @@ type dumpBlocksParams struct {
 	dumpBlocks bool
 	blockStats *blockStats
 	f          *os.File
-	r          *tsm1.TSMReader
+	r          *tsm1.TsmFileReader
 }
 
 func dumpBlocks(cmd *cobra.Command, params dumpBlocksParams) (int64, int64, int64, error) {

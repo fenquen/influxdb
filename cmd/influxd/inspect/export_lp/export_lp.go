@@ -245,7 +245,7 @@ func exportTSM(tsmFile string, filters *exportFilters, out io.Writer, log *zap.L
 	}
 	defer f.Close()
 
-	reader, err := tsm1.NewTSMReader(f)
+	reader, err := tsm1.NewTsmFileReader(f)
 	if err != nil {
 		return err
 	}

@@ -177,13 +177,13 @@ func (v *verifyTSM) next() bool {
 	return true
 }
 
-func (v *verifyTSM) tsmReader() (*tsm1.TSMReader, func(), error) {
+func (v *verifyTSM) tsmReader() (*tsm1.TsmFileReader, func(), error) {
 	file, err := os.OpenFile(v.f, os.O_RDONLY, 0600)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	reader, err := tsm1.NewTSMReader(file)
+	reader, err := tsm1.NewTsmFileReader(file)
 	if err != nil {
 		closer := func() {
 			file.Close()

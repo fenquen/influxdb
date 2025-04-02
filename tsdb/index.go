@@ -1863,12 +1863,12 @@ func (indexSet IndexSet) measurementAuthorizedSeries(auth query.Authorizer, name
 	}
 }
 
-func (indexSet IndexSet) measurementHasTagValue(auth query.Authorizer, me, key, value []byte) (bool, error) {
+func (indexSet IndexSet) measurementHasTagValue(auth query.Authorizer, measurement, key, value []byte) (bool, error) {
 	if len(value) == 0 {
-		return indexSet.measurementHasEmptyTagValue(auth, me, key)
+		return indexSet.measurementHasEmptyTagValue(auth, measurement, key)
 	}
 
-	hasTagValue, err := indexSet.HasTagValue(me, key, value)
+	hasTagValue, err := indexSet.HasTagValue(measurement, key, value)
 	if err != nil || !hasTagValue {
 		return false, err
 	}
@@ -1880,7 +1880,7 @@ func (indexSet IndexSet) measurementHasTagValue(auth query.Authorizer, me, key, 
 
 	// When an authorizer is present, the measurement should be
 	// included only if one of it's series is authorized.
-	sitr, err := indexSet.tagValueSeriesIDIterator(me, key, value)
+	sitr, err := indexSet.tagValueSeriesIDIterator(measurement, key, value)
 	if err != nil || sitr == nil {
 		return false, err
 	}
@@ -2022,8 +2022,8 @@ func (indexSet IndexSet) hasTagKey(name, key []byte) (bool, error) {
 // HasTagValue returns true if the tag value exists in any index for the provided
 // measurement and tag key.
 func (indexSet IndexSet) HasTagValue(name, key, value []byte) (bool, error) {
-	for _, idx := range indexSet.Indexes {
-		if ok, err := idx.HasTagValue(name, key, value); err != nil {
+	for _, index := range indexSet.Indexes {
+		if ok, err := index.HasTagValue(name, key, value); err != nil {
 			return false, err
 		} else if ok {
 			return true, nil

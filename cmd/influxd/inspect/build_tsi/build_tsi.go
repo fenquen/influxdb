@@ -118,7 +118,7 @@ memory usage.
 }
 
 // Run executes the run command for BuildTSI.
-func (buildTSICmd *buildTSI) run() error {
+func (buildTSI *buildTSI) run() error {
 	// Verify the user actually wants to run as root.
 	if isRoot() {
 		cli := clients.CLI{StdIO: stdio.TerminalStdio}
@@ -132,18 +132,18 @@ Are you sure you want to continue?`); !confirmed {
 				return errors.New("operation aborted")
 			}
 		} else {
-			buildTSICmd.Logger.Warn(
+			buildTSI.Logger.Warn(
 				"You are current running as root. This will build your index files with root ownership and will be inaccessible if you run influxd as a non-root user.")
 		}
 	}
 
-	if buildTSICmd.compactSeriesFile {
-		if buildTSICmd.shardID != "" {
+	if buildTSI.compactSeriesFile {
+		if buildTSI.shardID != "" {
 			return errors.New("cannot specify shard ID when compacting series file")
 		}
 	}
 
-	fis, err := os.ReadDir(buildTSICmd.dataPath)
+	fis, err := os.ReadDir(buildTSI.dataPath)
 	if err != nil {
 		return err
 	}
@@ -151,18 +151,18 @@ Are you sure you want to continue?`); !confirmed {
 		name := fi.Name()
 		if !fi.IsDir() {
 			continue
-		} else if buildTSICmd.bucketID != "" && name != buildTSICmd.bucketID {
+		} else if buildTSI.bucketID != "" && name != buildTSI.bucketID {
 			continue
 		}
 
-		if buildTSICmd.compactSeriesFile {
-			if err := buildTSICmd.compactBucketSeriesFile(filepath.Join(buildTSICmd.dataPath, name)); err != nil {
+		if buildTSI.compactSeriesFile {
+			if err := buildTSI.compactBucketSeriesFile(filepath.Join(buildTSI.dataPath, name)); err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := buildTSICmd.processBucket(name, filepath.Join(buildTSICmd.dataPath, name), filepath.Join(buildTSICmd.walPath, name)); err != nil {
+		if err := buildTSI.processBucket(name, filepath.Join(buildTSI.dataPath, name), filepath.Join(buildTSI.walPath, name)); err != nil {
 			return err
 		}
 	}
@@ -173,9 +173,9 @@ Are you sure you want to continue?`); !confirmed {
 
 // compactBucketSeriesFile compacts the series file segments associated with
 // the series file for the provided bucket.
-func (buildTSICmd *buildTSI) compactBucketSeriesFile(path string) error {
+func (buildTSI *buildTSI) compactBucketSeriesFile(path string) error {
 	sfilePath := filepath.Join(path, tsdb.SeriesFileDirectory)
-	paths, err := buildTSICmd.seriesFilePartitionPaths(sfilePath)
+	paths, err := buildTSI.seriesFilePartitionPaths(sfilePath)
 	if err != nil {
 		return err
 	}
@@ -189,10 +189,10 @@ func (buildTSICmd *buildTSI) compactBucketSeriesFile(path string) error {
 
 	// Concurrently process each partition in the series file
 	var g errgroup.Group
-	for i := 0; i < buildTSICmd.concurrency; i++ {
+	for i := 0; i < buildTSI.concurrency; i++ {
 		g.Go(func() error {
 			for path := range pathCh {
-				if err := buildTSICmd.compactSeriesFilePartition(path); err != nil {
+				if err := buildTSI.compactSeriesFilePartition(path); err != nil {
 					return err
 				}
 			}
@@ -217,14 +217,14 @@ func (buildTSICmd *buildTSI) compactBucketSeriesFile(path string) error {
 		if err = compactor.Compact(partition); err != nil {
 			return err
 		}
-		buildTSICmd.Logger.Debug("Compacted", zap.String("path", partition.Path()))
+		buildTSI.Logger.Debug("Compacted", zap.String("path", partition.Path()))
 	}
 	return nil
 }
 
-func (buildTSICmd *buildTSI) compactSeriesFilePartition(path string) error {
+func (buildTSI *buildTSI) compactSeriesFilePartition(path string) error {
 	const tmpExt = ".tmp"
-	buildTSICmd.Logger.Info("Processing partition", zap.String("path", path))
+	buildTSI.Logger.Info("Processing partition", zap.String("path", path))
 
 	// Open partition so index can recover from entries not in the snapshot.
 	partitionID, err := strconv.Atoi(filepath.Base(path))
@@ -241,7 +241,7 @@ func (buildTSICmd *buildTSI) compactSeriesFilePartition(path string) error {
 	indexPath := p.IndexPath()
 	var segmentPaths []string
 	for _, segment := range p.Segments() {
-		buildTSICmd.Logger.Debug("Processing segment", zap.String("path", segment.Path()), zap.Uint16("segment-id", segment.ID()))
+		buildTSI.Logger.Debug("Processing segment", zap.String("path", segment.Path()), zap.Uint16("segment-id", segment.ID()))
 
 		if err := segment.CompactToPath(segment.Path()+tmpExt, p.Index()); err != nil {
 			return err
@@ -258,14 +258,14 @@ func (buildTSICmd *buildTSI) compactSeriesFilePartition(path string) error {
 	for _, dst := range segmentPaths {
 		src := dst + tmpExt
 
-		buildTSICmd.Logger.Debug("Renaming new segment", zap.String("prev", src), zap.String("new", dst))
+		buildTSI.Logger.Debug("Renaming new segment", zap.String("prev", src), zap.String("new", dst))
 		if err := file.RenameFile(src, dst); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("serious failure. Please rebuild index and series file: %w", err)
 		}
 	}
 
 	// Remove index file so it will be rebuilt when reopened.
-	buildTSICmd.Logger.Debug("Removing index file", zap.String("path", indexPath))
+	buildTSI.Logger.Debug("Removing index file", zap.String("path", indexPath))
 
 	if err := os.Remove(indexPath); err != nil && !os.IsNotExist(err) { // index won't exist for low cardinality
 		return err
@@ -275,9 +275,9 @@ func (buildTSICmd *buildTSI) compactSeriesFilePartition(path string) error {
 }
 
 // seriesFilePartitionPaths returns the paths to each partition in the series file.
-func (buildTSICmd *buildTSI) seriesFilePartitionPaths(path string) ([]string, error) {
+func (buildTSI *buildTSI) seriesFilePartitionPaths(path string) ([]string, error) {
 	sfile := tsdb.NewSeriesFile(path)
-	sfile.Logger = buildTSICmd.Logger
+	sfile.Logger = buildTSI.Logger
 	if err := sfile.Open(); err != nil {
 		return nil, err
 	}
@@ -292,15 +292,15 @@ func (buildTSICmd *buildTSI) seriesFilePartitionPaths(path string) ([]string, er
 	return paths, nil
 }
 
-func (buildTSICmd *buildTSI) processBucket(bucketID, dataDir, walDir string) error {
-	buildTSICmd.Logger.Info("Rebuilding bucket", zap.String("name", bucketID))
+func (buildTSI *buildTSI) processBucket(bucketID, dataDir, walDir string) error {
+	buildTSI.Logger.Info("Rebuilding bucket", zap.String("name", bucketID))
 
-	sfile := tsdb.NewSeriesFile(filepath.Join(dataDir, tsdb.SeriesFileDirectory))
-	sfile.Logger = buildTSICmd.Logger
-	if err := sfile.Open(); err != nil {
+	seriesFile := tsdb.NewSeriesFile(filepath.Join(dataDir, tsdb.SeriesFileDirectory))
+	seriesFile.Logger = buildTSI.Logger
+	if err := seriesFile.Open(); err != nil {
 		return err
 	}
-	defer sfile.Close()
+	defer seriesFile.Close()
 
 	fis, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -315,7 +315,7 @@ func (buildTSICmd *buildTSI) processBucket(bucketID, dataDir, walDir string) err
 			continue
 		}
 
-		if err := buildTSICmd.processRetentionPolicy(sfile, bucketID, rpName, filepath.Join(dataDir, rpName), filepath.Join(walDir, rpName)); err != nil {
+		if err := buildTSI.processRetentionPolicy(seriesFile, bucketID, rpName, filepath.Join(dataDir, rpName), filepath.Join(walDir, rpName)); err != nil {
 			return err
 		}
 	}
@@ -323,8 +323,8 @@ func (buildTSICmd *buildTSI) processBucket(bucketID, dataDir, walDir string) err
 	return nil
 }
 
-func (buildTSICmd *buildTSI) processRetentionPolicy(sfile *tsdb.SeriesFile, bucketID, rpName, dataDir, walDir string) error {
-	buildTSICmd.Logger.Info("Rebuilding retention policy", logger.Database(bucketID), logger.RetentionPolicy(rpName))
+func (buildTSI *buildTSI) processRetentionPolicy(seriesFile *tsdb.SeriesFile, bucketID, rpName, dataDir, walDir string) error {
+	buildTSI.Logger.Info("Rebuilding retention policy", logger.Database(bucketID), logger.RetentionPolicy(rpName))
 
 	fis, err := os.ReadDir(dataDir)
 	if err != nil {
@@ -341,7 +341,7 @@ func (buildTSICmd *buildTSI) processRetentionPolicy(sfile *tsdb.SeriesFile, buck
 	for _, fi := range fis {
 		if !fi.IsDir() {
 			continue
-		} else if buildTSICmd.shardID != "" && fi.Name() != buildTSICmd.shardID {
+		} else if buildTSI.shardID != "" && fi.Name() != buildTSI.shardID {
 			continue
 		}
 
@@ -355,7 +355,7 @@ func (buildTSICmd *buildTSI) processRetentionPolicy(sfile *tsdb.SeriesFile, buck
 
 	errC := make(chan error, len(shards))
 	var maxi uint32 // index of maximum shard being worked on.
-	for k := 0; k < buildTSICmd.concurrency; k++ {
+	for k := 0; k < buildTSI.concurrency; k++ {
 		go func() {
 			for {
 				i := int(atomic.AddUint32(&maxi, 1) - 1) // Get next partition to work on.
@@ -364,8 +364,8 @@ func (buildTSICmd *buildTSI) processRetentionPolicy(sfile *tsdb.SeriesFile, buck
 				}
 
 				id, name := shards[i].ID, shards[i].Path
-				log := buildTSICmd.Logger.With(logger.Database(bucketID), logger.RetentionPolicy(rpName), logger.Shard(id))
-				errC <- IndexShard(sfile, filepath.Join(dataDir, name), filepath.Join(walDir, name), buildTSICmd.maxLogFileSize, buildTSICmd.maxCacheSize, buildTSICmd.batchSize, log)
+				log := buildTSI.Logger.With(logger.Database(bucketID), logger.RetentionPolicy(rpName), logger.Shard(id))
+				errC <- IndexShard(seriesFile, filepath.Join(dataDir, name), filepath.Join(walDir, name), buildTSI.maxLogFileSize, buildTSI.maxCacheSize, buildTSI.batchSize, log)
 			}
 		}()
 	}
@@ -523,7 +523,7 @@ func IndexTSMFile(index *tsi1.Index, path string, batchSize int, log *zap.Logger
 	}
 	defer f.Close()
 
-	r, err := tsm1.NewTSMReader(f)
+	r, err := tsm1.NewTsmFileReader(f)
 	if err != nil {
 		log.Warn("Unable to read, skipping", zap.String("path", path), zap.Error(err))
 		return nil

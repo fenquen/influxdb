@@ -29,7 +29,7 @@ const Version = 1
 
 // File extensions.
 const (
-	LogFileExt   = ".tsl"
+	LogFileExt   = ".tsl" // tsi使用了lsm体系 tsl是这个体系的wal的
 	IndexFileExt = ".tsi"
 
 	CompactingExt = ".compacting"
@@ -38,7 +38,7 @@ const (
 // ManifestFileName is the name of the index manifest file.
 const ManifestFileName = "MANIFEST"
 
-// Partition represents a collection of layered index files and WAL.
+// Partition represents a collection of layered index files(tsi) and WAL(tsl)
 type Partition struct {
 	mu     sync.RWMutex
 	opened bool
@@ -70,10 +70,10 @@ type Partition struct {
 	id   string // id portion of path.
 
 	// Log file compaction thresholds.
-	MaxLogFileSize int64 // 对应 storage-max-index-log-file-size
-	MaxLogFileAge  time.Duration
-	nosync         bool // when true, flushing and syncing of LogFile will be disabled.
-	logbufferSize  int  // the LogFile's buffer is set to this value.
+	MaxLogFileSize int64         // 对应 storage-max-index-log-file-size 默认 DefaultMaxIndexLogFileSize
+	MaxLogFileAge  time.Duration // 默认 tsdb.DefaultCompactFullWriteColdDuration
+	nosync         bool          // when true, flushing and syncing of LogFile will be disabled.
+	logbufferSize  int           // the LogFile's buffer is set to this value.
 
 	// Frequency of compaction checks.
 	compactionInterrupt chan struct{}
@@ -148,7 +148,7 @@ func (partition *Partition) bytes() int {
 // incompatible tsi1 manifest file.
 var ErrIncompatibleVersion = errors.New("incompatible tsi1 index MANIFEST")
 
-// Open opens the partition.
+// open partition
 func (partition *Partition) Open() (rErr error) {
 	partition.mu.Lock()
 	defer partition.mu.Unlock()
@@ -705,8 +705,8 @@ func (partition *Partition) DropMeasurement(name []byte) error {
 	return nil
 }
 
-// createSeriesListIfNotExists creates a list of series if they doesn't exist in
-// bulk.
+// createSeriesListIfNotExists creates a list of series if they don't exist in
+// bulk
 func (partition *Partition) createSeriesListIfNotExists(names [][]byte, tagsSlice []models.Tags) ([]uint64, error) {
 	// Is there anything to do? The partition may have been sent an empty batch.
 	if len(names) == 0 {
@@ -732,7 +732,7 @@ func (partition *Partition) createSeriesListIfNotExists(names [][]byte, tagsSlic
 	}
 	partition.mu.RUnlock()
 
-	if err := partition.CheckLogFile(); err != nil { // CheckLogFile() 只是用来compact index的wal
+	if err := partition.CheckLogFile(); err != nil { // CheckLogFile() 只是用来compact index的wal(tsl)
 		return nil, err
 	}
 	return ids, nil
@@ -992,7 +992,7 @@ func (partition *Partition) NeedsCompaction(checkRunning bool) bool {
 	return false
 }
 
-// compact compacts continguous groups of files that are not currently compacting.
+// compact compacts continuous groups of files that are not currently compacting.
 //
 // compact requires that mu is write-locked.
 func (partition *Partition) compact() {
